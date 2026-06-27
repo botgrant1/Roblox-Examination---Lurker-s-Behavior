@@ -1,10 +1,10 @@
 --[[
-    LURKER AUTOPILOT - VERSION 12 (WORLD SPACE NATIVE - FIXED CAMERA DECOUPLING)
+    LURKER AUTOPILOT - VERSION 13 (VIRTUAL INPUT CLICK STEERING)
 --]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -14,7 +14,7 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 getgenv().LurkerAI_Enabled = false
 
 -- =========================================================================
--- INTERFAZ GRÁFICA (MENÚ DE CONTROL CON DESACTIVADO DE SEGURIDAD)
+-- INTERFAZ GRÁFICA (MENÚ DE CONTROL TOTALMENTE SEGURO)
 -- =========================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
@@ -51,14 +51,12 @@ toggleButton.Text = "ESTADO: DESACTIVADO"
 toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.TextSize = 14
 toggleButton.Font = Enum.Font.SourceSans
-toggleButton.Parent = mainFrame
+toggleButton.Parent = toggleButton.Parent
 
 local buttonCorner = Instance.new("UICorner")
 buttonCorner.CornerRadius = UDim.new(0, 6)
 buttonCorner.Parent = toggleButton
-
--- Variable para inyectar movimiento continuo al bucle del juego
-local currentMoveVector = Vector3.new()
+toggleButton.Parent = mainFrame
 
 toggleButton.MouseButton1Click:Connect(function()
 	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
@@ -66,61 +64,58 @@ toggleButton.MouseButton1Click:Connect(function()
 	if getgenv().LurkerAI_Enabled then
 		toggleButton.Text = "ESTADO: ACTIVO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
-		humanoid.AutoRotate = false -- Desligamos el torso del mouse del jugador
+		-- Aseguramos que las propiedades nativas queden por defecto para evitar congelamientos
+		humanoid.AutoRotate = true 
+		print("[AI] Buscador por Clic Nativo Iniciado.")
 	else
 		toggleButton.Text = "ESTADO: DESACTIVADO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-		humanoid.AutoRotate = true
-		currentMoveVector = Vector3.new() -- Frenar en seco
+		humanoid:Move(Vector3.new(), false) -- Detener marcha
 	end
 end)
 
 -- =========================================================================
--- SISTEMA DE VISIÓN Y NAVEGACIÓN ABSOLUTA EN MUNDO
+-- SISTEMA DE VISIÓN Y LOGICA DE NAVEGACIÓN POR IMPULSO
 -- =========================================================================
 local maxVisionDistance = 110
 local currentTarget = nil
-local patrolDirection = rootPart.CFrame.LookVector
 local isResting = false
-local timeOnPath = 0
-local maxPathTime = math.random(5, 8)
+local currentTargetPos = rootPart.Position
 
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- Buscador de pasillos abiertos mediante muestreo de mundo (Ignora la cámara)
-local function scanBestPasillo()
+-- Buscador de pasillos abiertos con Raycast radial de seguridad
+local function getNewPatrolPoint()
 	rayParams.FilterDescendantsInstances = {character}
 	local origin = rootPart.Position + Vector3.new(0, 0.5, 0)
 	
-	local bestDir = patrolDirection
+	local bestPoint = rootPart.Position
 	local maxFreeSpace = 0
 	
+	-- Escanea 12 direcciones a la redonda de forma tridimensional limpia
 	for i = 1, 12 do
 		local angle = math.rad(i * (360 / 12))
-		local testDir = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
-		local rayResult = Workspace:Raycast(origin, testDir * 55, rayParams)
-		local freeDistance = rayResult and (rayResult.Position - rootPart.Position).Magnitude or 55
+		local distance = math.random(35, 65) -- Trayectos largos tipo Lurker
+		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
 		
-		-- Salto automático si nos topamos con decorado/cajas muy cerca
-		if rayResult and freeDistance < 4 then
-			humanoid.Jump = true
-		end
+		local rayResult = Workspace:Raycast(origin, direction * distance, rayParams)
+		local freeDistance = rayResult and (rayResult.Position - rootPart.Position).Magnitude or distance
 		
-		if freeDistance > maxFreeSpace and freeDistance > 14 then
+		if freeDistance > maxFreeSpace and freeDistance > 15 then
 			maxFreeSpace = freeDistance
-			bestDir = testDir
+			-- Guardamos el punto restando un pequeño margen para no chocar de frente con el muro final
+			bestPoint = rootPart.Position + direction * (freeDistance - 5)
 		end
 	end
-	return bestDir
+	return bestPoint
 end
 
 local function hasLineOfSight(enemyRoot)
 	rayParams.FilterDescendantsInstances = {character}
 	local toEnemy = (enemyRoot.Position - rootPart.Position).Unit
-	
-	-- El campo de visión se calcula desde el pecho del avatar, no desde tu cámara
 	local dotProduct = rootPart.CFrame.LookVector:Dot(toEnemy)
+	
 	if dotProduct < 0.65 then return false end 
 	
 	local origin = rootPart.Position + Vector3.new(0, 2, 0)
@@ -157,16 +152,7 @@ local function getVisibleEntity()
 	return target
 end
 
--- INYECTOR DE MOVIMIENTO CONTINUO (Sincronizado a los FPS nativos)
-RunService.Heartbeat:Connect(function()
-	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
-	
-	-- El truco maestro: el segundo parámetro es FALSE. Esto obliga a Roblox a caminar
-	-- en coordenadas del mapa, ignorando por completo hacia dónde apunte tu cámara.
-	humanoid:Move(currentMoveVector, false)
-end)
-
--- Bucle lógico de toma de decisiones (Cero LAG de red)
+-- BUCLE DE ACCIÓN PRINCIPAL (Sincronizado de forma segura)
 task.spawn(function()
 	while task.wait(0.05) do
 		if not getgenv().LurkerAI_Enabled then continue end
@@ -183,56 +169,50 @@ task.spawn(function()
 			
 			if distance > 130 then
 				currentTarget = nil
-				currentMoveVector = Vector3.new()
 			elseif distance <= 6.5 then
-				currentMoveVector = Vector3.new()
+				humanoid:Move(Vector3.new(), false)
 				local tool = character:FindFirstChildOfClass("Tool")
 				if tool then tool:Activate() end
 			else
 				humanoid.WalkSpeed = 24
-				
-				-- Forzamos al cuerpo a mirar al infectado de frente
-				local targetLook = Vector3.new(enemyPos.X, rootPart.Position.Y, enemyPos.Z)
-				rootPart.CFrame = CFrame.new(rootPart.Position, targetLook)
-				
-				currentMoveVector = (targetLook - rootPart.Position).Unit
+				-- Impulsamos al jugador usando la dirección de mundo limpia hacia la entidad
+				local targetDir = (Vector3.new(enemyPos.X, rootPart.Position.Y, enemyPos.Z) - rootPart.Position).Unit
+				humanoid:Move(targetDir, false) -- Al estar AutoRotate en true, Roblox gira el cuerpo solo y de forma fluida
 			end
 			
-		-- ESTADO DE PATRULLA SECTORIAL INDEPENDIENTE
+		-- ESTADO DE PATRULLA ESTILO LURKER REPARADO
 		else
 			currentTarget = nil
 			humanoid.WalkSpeed = 15
 			
 			if isResting then
-				currentMoveVector = Vector3.new()
+				humanoid:Move(Vector3.new(), false)
 			else
-				-- Escaneamos pasillos abiertos limpios
-				patrolDirection = scanBestPasillo()
+				local flatCharacterPos = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+				local flatTargetPos = Vector3.new(currentTargetPos.X, 0, currentTargetPos.Z)
+				local distanceToPoint = (flatCharacterPos - flatTargetPos).Magnitude
 				
-				-- Orientamos el torso hacia el rumbo calculado
-				local targetLook = rootPart.Position + patrolDirection
-				rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetLook.X, rootPart.Position.Y, targetLook.Z))
-				
-				-- Guardamos la dirección para que el Heartbeat la ejecute de forma fluida
-				currentMoveVector = patrolDirection
-				
-				timeOnPath = timeOnPath + 0.05
-				if timeOnPath >= maxPathTime then
+				-- Si estamos lejos del pasillo abierto elegido, avanzamos de forma fluida e independiente de la cámara
+				if distanceToPoint > 4 then
+					local patrolDir = (flatTargetPos - flatCharacterPos).Unit
+					
+					-- Salto automático si nos topamos con un obstáculo bajo/caja de forma inesperada
+					local frontRay = Workspace:Raycast(rootPart.Position, patrolDir * 4, rayParams)
+					if frontRay then humanoid.Jump = true end
+					
+					humanoid:Move(patrolDir, false)
+				else
+					-- ¡Llegamos al final del pasillo despejado! Hacemos la pausa estática de acecho del Lurker original
 					isResting = true
-					currentMoveVector = Vector3.new()
+					humanoid:Move(Vector3.new(), false)
 					
-					task.wait(math.random(15, 25) / 10) -- Pausa estática del Lurker
+					task.wait(math.random(15, 25) / 10) -- Pausa de 1.5 a 2.5 segundos inmóvil
 					
-					maxPathTime = math.random(5, 8)
-					timeOnPath = 0
+					-- Calculamos un nuevo pasillo largo y despejado de Examination
+					currentTargetPos = getNewPatrolPoint()
 					isResting = false
 				end
 			end
 		end
 	end
-end)
-
-humanoid.Died:Connect(function()
-	humanoid.AutoRotate = true
-	screenGui:Destroy()
 end)
