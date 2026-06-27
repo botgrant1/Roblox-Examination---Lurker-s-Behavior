@@ -1,6 +1,5 @@
 --[[
-    LURKER AUTOPILOT FOR EXECUTORS
-    Este script hace que tu personaje busque enemigos y los ataque solo.
+    LURKER AUTOPILOT FOR EXECUTORS (VERSION 2 - UNIVERSAL TRACKER)
 --]]
 
 local Players = game:GetService("Players")
@@ -12,56 +11,56 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
-print("[Lurker Exploit] Script cargado correctamente.")
+print("[Lurker Exploit] ¡Versión 2 cargada con Rastreador Universal!")
 
--- Bucle principal usando el motor de renderizado del cliente
+-- Bucle principal
 local loopConnection
 loopConnection = RunService.Heartbeat:Connect(function()
-	-- Validar si el jugador sigue vivo, si no, detiene el bucle
 	if not humanoid or humanoid.Health <= 0 then 
 		loopConnection:Disconnect()
 		return 
 	end
 	
-	-- 1. BUSCAR OBJETIVO CERCANO (Cualquier NPC o Jugador hostil)
 	local target = nil
-	local maxDistance = 150 -- Rango de visión de la IA
+	local maxDistance = 250 -- Aumentamos el rango para que los detecte desde lejos
 	
-	for _, obj in ipairs(Workspace:GetChildren()) do
-		-- Busca modelos en el mapa que tengan vida y no seas tú mismo
-		if obj:IsA("Model") and obj ~= character then
-			local enemyHumanoid = obj:FindFirstChild("Humanoid")
-			local enemyRoot = obj:FindFirstChild("HumanoidRootPart")
+	-- BUSCADOR AVANZADO: Revisa todo el mapa en profundidad (carpetas y subcarpetas)
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj:IsA("Humanoid") and obj.Health > 0 then
+			local enemyCharacter = obj.Parent
 			
-			if enemyHumanoid and enemyHumanoid.Health > 0 and enemyRoot then
-				local distance = (rootPart.Position - enemyRoot.Position).Magnitude
-				if distance < maxDistance then
-					maxDistance = distance
-					target = enemyRoot
+			-- Asegurarse de que no te persigas a ti mismo ni a otros miembros de tu equipo
+			if enemyCharacter and enemyCharacter:IsA("Model") and enemyCharacter ~= character then
+				local enemyRoot = enemyCharacter:FindFirstChild("HumanoidRootPart")
+				
+				if enemyRoot then
+					local distance = (rootPart.Position - enemyRoot.Position).Magnitude
+					if distance < maxDistance then
+						maxDistance = distance
+						target = enemyRoot
+					end
 				end
 			end
 		end
 	end
 	
-	-- 2. SIMULAR COMPORTAMIENTO LURKER
+	-- ACCIONES DE LA IA
 	if target then
 		local distanceToEnemy = (rootPart.Position - target.Position).Magnitude
 		
-		if distanceToEnemy <= 6 then
-			-- COMPORTAMIENTO 1: Rango de Ataque
-			-- Nota: Como el daño está protegido por el servidor, simulamos el clic/activación de tu arma
+		if distanceToEnemy <= 7 then
+			-- Ataque automático si tienes una herramienta en mano
 			local tool = character:FindFirstChildOfClass("Tool")
 			if tool then
-				tool:Activate() -- Hace que tu personaje use el arma/ataque automáticamente
+				tool:Activate()
 			end
 		else
-			-- COMPORTAMIENTO 2: Persecución Agresiva
-			-- Los Executors pueden alterar la velocidad localmente de forma segura
-			humanoid.WalkSpeed = 24 -- Velocidad rápida de Lurker
+			-- Camina automáticamente hacia el objetivo con velocidad de Lurker
+			humanoid.WalkSpeed = 24
 			humanoid:MoveTo(target.Position)
 		end
 	else
-		-- COMPORTAMIENTO 3: Patrulla/Espera pasiva
+		-- Si realmente no encuentra absolutamente a nadie vivo en el mapa
 		humanoid.WalkSpeed = 16
 	end
 end)
