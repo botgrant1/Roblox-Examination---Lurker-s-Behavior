@@ -1,5 +1,5 @@
 --[[
-    LURKER AUTOPILOT - VERSION 22 (FAST REACTION & INSTANT FORKING)
+    LURKER AUTOPILOT - VERSION 23 (INFINITE PATROL ENGINE & MEMORY BYPASS)
 --]]
 
 local Players = game:GetService("Players")
@@ -69,9 +69,8 @@ local lastLeaderMoveTime = 0
 local leaderLastPos = Vector3.new()
 local voiceCommandRange = 45     
 
--- Sistema de memoria y caminos aleatorios
-local positionHistory = {} 
-local maxHistoryLength = 4 
+-- Sistema de memoria a corto plazo optimizado
+local lastVisitedPosition = rootPart.Position
 
 toggleButton.MouseButton1Click:Connect(function()
 	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
@@ -83,7 +82,8 @@ toggleButton.MouseButton1Click:Connect(function()
 		currentVisualHeading = rootPart.CFrame.LookVector
 		isResting = false
 		leaderCharacter = nil
-		positionHistory = {}
+		lastVisitedPosition = rootPart.Position
+		print("[AI] Motor infinito iniciado con bypass de congelamiento.")
 	else
 		toggleButton.Text = "ESTADO: DESACTIVADO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -120,7 +120,7 @@ for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
 Players.PlayerAdded:Connect(setupVoiceCommandListener)
 
 -- =========================================================================
--- ESCÁNER CON SISTEMA DE DECISIÓN COMPARTIDA (ANTI-BUCLE)
+-- ESCÁNER INTELIGENTE REPARADO (EVITA CONGELAMIENTOS)
 -- =========================================================================
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -130,6 +130,7 @@ local function calculateSmartLurkerPath()
 	local origin = rootPart.Position + Vector3.new(0, 0.5, 0)
 	
 	local validOptions = {} 
+	local backupOptions = {}
 	
 	for i = 1, 12 do
 		local angle = math.rad(i * (360 / 12))
@@ -148,49 +149,38 @@ local function calculateSmartLurkerPath()
 		
 		if effectiveDistance < 4.5 then humanoid.Jump = true end
 		
-		if effectiveDistance > 20 then
+		-- Si el pasillo tiene un mínimo espacio transitable (más de 15 unidades)
+		if effectiveDistance > 15 then
 			local potentialPoint = rootPart.Position + direction * (effectiveDistance - 5)
 			
-			local isTooCloseToHistory = false
-			for _, pastPos in ipairs(positionHistory) do
-				if (potentialPoint - pastPos).Magnitude < 25 then
-					isTooCloseToHistory = true 
-					break
-				end
-			end
+			-- BYPASS: Solo comparamos con el ÚLTIMO punto visitado para no saturar los desvíos
+			local isReturnPath = (potentialPoint - lastVisitedPosition).Magnitude < 25
 			
-			table.insert(validOptions, {
-				point = potentialPoint,
-				dist = effectiveDistance,
-				tooClose = isTooCloseToHistory
-			})
-		end
-	end
-	
-	local cleanChoices = {}
-	for _, option in ipairs(validOptions) do
-		if not option.tooClose then
-			table.insert(cleanChoices, option.point)
+			if not isReturnPath then
+				table.insert(validOptions, potentialPoint)
+			else
+				table.insert(backupOptions, potentialPoint)
+			end
 		end
 	end
 	
 	local selectedPoint = nil
 	
-	if #cleanChoices > 0 then
-		selectedPoint = cleanChoices[math.random(1, #cleanChoices)]
-	elseif #validOptions > 0 then
-		table.sort(validOptions, function(a, b) return a.dist > b.dist end)
-		selectedPoint = validOptions.point
+	-- LÓGICA DE DECISIÓN SEGURA E INFINITA
+	if #validOptions > 0 then
+		-- Si hay pasillos nuevos, elige uno al azar de forma dinámica
+		selectedPoint = validOptions[math.random(1, #validOptions)]
+	elseif #backupOptions > 0 then
+		-- Si estamos atrapados y la única opción es volver, la toma antes de congelarse
+		selectedPoint = backupOptions[math.random(1, #backupOptions)]
 	else
+		-- Respaldo absoluto si se encuentra en un cuarto minúsculo sin salidas registradas
 		local randomAngle = math.rad(math.random(0, 360))
 		selectedPoint = rootPart.Position + Vector3.new(math.cos(randomAngle) * 20, 0, math.sin(randomAngle) * 20)
 	end
 	
-	table.insert(positionHistory, rootPart.Position)
-	if #positionHistory > maxHistoryLength then
-		table.remove(positionHistory, 1) 
-	end
-	
+	-- Guardamos de forma limpia la posición actual como el último punto visitado
+	lastVisitedPosition = rootPart.Position
 	return selectedPoint
 end
 
@@ -253,9 +243,9 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			destinationPos = targetPosition
 			moveDirection = (flatTargetPos - flatCharacterPos).Unit
 		else
-			-- MODIFICACIÓN CRÍTICA: Pausa ultracorta de 0.3 a 0.7 segundos para una reacción casi instantánea
+			-- Pausa ultracorta estabilizada (0.3 a 0.6 segundos)
 			isResting = true
-			restTimer = math.random(3, 7) / 10 
+			restTimer = math.random(3, 6) / 10 
 			pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
 			return
 		end
