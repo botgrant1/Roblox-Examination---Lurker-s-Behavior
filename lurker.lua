@@ -1,5 +1,5 @@
 --[[
-    LURKER AUTOPILOT - VERSION 18 (LONG RANGE PATROL CALIBRATION)
+    LURKER AUTOPILOT - VERSION 21 (SHORT-TERM MEMORY & PATH FORKING SYSTEM)
 --]]
 
 local Players = game:GetService("Players")
@@ -57,11 +57,21 @@ local buttonCorner = Instance.new("UICorner")
 buttonCorner.CornerRadius = UDim.new(0, 6)
 buttonCorner.Parent = toggleButton
 
--- Variables de control de la IA para tramos largos
+-- Variables de control de la IA y Seguimiento
 local targetPosition = rootPart.Position
 local isResting = false
 local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
+
+-- Variables del sistema de comandos de voz Z
+local leaderCharacter = nil      
+local lastLeaderMoveTime = 0     
+local leaderLastPos = Vector3.new()
+local voiceCommandRange = 45     
+
+-- Sistema de memoria y caminos aleatorios
+local positionHistory = {} 
+local maxHistoryLength = 4 
 
 toggleButton.MouseButton1Click:Connect(function()
 	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
@@ -72,34 +82,60 @@ toggleButton.MouseButton1Click:Connect(function()
 		targetPosition = rootPart.Position
 		currentVisualHeading = rootPart.CFrame.LookVector
 		isResting = false
-		print("[AI] Iniciando patrulla de largo alcance estilo Lurker.")
+		leaderCharacter = nil
+		positionHistory = {}
 	else
 		toggleButton.Text = "ESTADO: DESACTIVADO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		leaderCharacter = nil
 	end
 end)
 
 -- =========================================================================
--- ESCÁNER PROFUNDO DE SECTOR (Busca los pasillos más largos del mapa)
+-- OYENTE TÁCTICO DE VOICELINES Z
+-- =========================================================================
+local function setupVoiceCommandListener(otherPlayer)
+	otherPlayer.Chatted:Connect(function(message)
+		if not getgenv().LurkerAI_Enabled then return end
+		if otherPlayer == player then return end 
+		
+		local otherChar = otherPlayer.Character
+		if not otherChar or not otherChar:FindFirstChild("HumanoidRootPart") then return end
+		
+		local distanceToSpeaker = (rootPart.Position - otherChar.HumanoidRootPart.Position).Magnitude
+		
+		if distanceToSpeaker <= voiceCommandRange then
+			if message == "Follow Me!" or message == "Follow me!" or message == "Sígueme!" or message == "Sigueme!" then
+				leaderCharacter = otherChar
+				leaderLastPos = otherChar.HumanoidRootPart.Position
+				lastLeaderMoveTime = os.clock()
+				isResting = false
+				print("[Voiceline Z] Siguiendo a: " .. otherPlayer.Name)
+			end
+		end
+	end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
+Players.PlayerAdded:Connect(setupVoiceCommandListener)
+
+-- =========================================================================
+-- ESCÁNER CON SISTEMA DE DECISIÓN COMPARTIDA (ANTI-BUCLE)
 -- =========================================================================
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-local function calculateLongLurkerPath()
+local function calculateSmartLurkerPath()
 	rayParams.FilterDescendantsInstances = {character}
 	local origin = rootPart.Position + Vector3.new(0, 0.5, 0)
 	
-	local bestPoint = rootPart.Position
-	local maxFreeSpace = 0
+	local validOptions = {} 
 	
-	-- Incrementamos a 16 direcciones de barrido profundo para mapear pasillos distantes
-	for i = 1, 16 do
-		local angle = math.rad(i * (360 / 16))
-		-- Calibración de distancia: Forzamos tramos largos de entre 45 y 85 unidades
-		local distance = math.random(45, 85) 
+	for i = 1, 12 do
+		local angle = math.rad(i * (360 / 12))
+		local distance = math.random(45, 80) 
 		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
 		
-		-- Sensores de dos niveles para escanear cajas decorativas y muros estructurales lejanos
 		local originLow = rootPart.Position + Vector3.new(0, -0.6, 0)
 		local originHigh = rootPart.Position + Vector3.new(0, 1, 0)
 		
@@ -110,81 +146,136 @@ local function calculateLongLurkerPath()
 		local distHigh = rayHigh and (rayHigh.Position - rootPart.Position).Magnitude or distance
 		local effectiveDistance = math.min(distLow, distHigh)
 		
-		-- Salto predictivo si detectamos un obstáculo bajo en la ruta larga
-		if effectiveDistance < 4.5 then
-			humanoid.Jump = true
-		end
+		if effectiveDistance < 4.5 then humanoid.Jump = true end
 		
-		-- Filtro estricto: Prioriza de forma masiva los caminos largos sobre los callejones cortos
-		if effectiveDistance > maxFreeSpace and effectiveDistance > 20 then
-			maxFreeSpace = effectiveDistance
-			-- Guardamos la coordenada final dejando un margen seguro de 5 unidades para girar la esquina fluidamente
-			bestPoint = rootPart.Position + direction * (effectiveDistance - 5)
-		end
-	end
-	
-	-- Si el entorno inmediato está muy cerrado y el escáner largo no encuentra pasillos de más de 20 unidades,
-	-- toma una ruta de escape media por defecto para salir de la habitación hacia el pasillo principal.
-	if maxFreeSpace == 0 then
-		for i = 1, 8 do
-			local angle = math.rad(i * 45)
-			local direction = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
-			local ray = Workspace:Raycast(origin, direction * 25, rayParams)
-			local dist = ray and (ray.Position - rootPart.Position).Magnitude or 25
-			if dist > maxFreeSpace then
-				maxFreeSpace = dist
-				bestPoint = rootPart.Position + direction * (dist - 4)
+		if effectiveDistance > 20 then
+			local potentialPoint = rootPart.Position + direction * (effectiveDistance - 5)
+			
+			local isTooCloseToHistory = false
+			for _, pastPos in ipairs(positionHistory) do
+				if (potentialPoint - pastPos).Magnitude < 25 then
+					isTooCloseToHistory = true 
+					break
+				end
 			end
+			
+			table.insert(validOptions, {
+				point = potentialPoint,
+				dist = effectiveDistance,
+				tooClose = isTooCloseToHistory
+			})
 		end
 	end
 	
-	return bestPoint
+	local cleanChoices = {}
+	for _, option in ipairs(validOptions) do
+		if not option.tooClose then
+			table.insert(cleanChoices, option.point)
+		end
+	end
+	
+	local selectedPoint = nil
+	
+	if #cleanChoices > 0 then
+		selectedPoint = cleanChoices[math.random(1, #cleanChoices)]
+	elseif #validOptions > 0 then
+		table.sort(validOptions, function(a, b) return a.dist > b.dist end)
+		selectedPoint = validOptions[1].point
+	else
+		local randomAngle = math.rad(math.random(0, 360))
+		selectedPoint = rootPart.Position + Vector3.new(math.cos(randomAngle) * 20, 0, math.sin(randomAngle) * 20)
+	end
+	
+	table.insert(positionHistory, rootPart.Position)
+	if #positionHistory > maxHistoryLength then
+		table.remove(positionHistory, 1) 
+	end
+	
+	return selectedPoint
 end
 
 -- =========================================================================
--- MOTOR SINCRÓNICO DE MOVIMIENTO FLUIDO
+-- MOTOR DE MOVIMIENTO GENERAL
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
-	-- Estado de acecho estático al final del tramo largo
-	if isResting then
-		restTimer = restTimer - deltaTime
-		if restTimer <= 0 then
-			isResting = false
-			targetPosition = calculateLongLurkerPath() -- Busca el siguiente tramo largo al instante
+	local currentSpeed = 7.2 
+	local moveDirection = Vector3.new()
+	local destinationPos = nil
+	
+	if leaderCharacter and leaderCharacter:FindFirstChild("HumanoidRootPart") and leaderCharacter:FindFirstChild("Humanoid") and leaderCharacter.Humanoid.Health > 0 then
+		local leaderRoot = leaderCharacter.HumanoidRootPart
+		local distanceToLeader = (rootPart.Position - leaderRoot.Position).Magnitude
+		
+		if (leaderRoot.Position - leaderLastPos).Magnitude > 1.5 then
+			leaderLastPos = leaderRoot.Position
+			lastLeaderMoveTime = os.clock() 
 		end
-		return
+		
+		if (os.clock() - lastLeaderMoveTime) > 15 then
+			leaderCharacter = nil
+			targetPosition = calculateSmartLurkerPath()
+			return
+		end
+		
+		if distanceToLeader > 25 then currentSpeed = 15 end
+		
+		if distanceToLeader > 6.5 then
+			destinationPos = leaderRoot.Position
+			local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+			local flatLeader = Vector3.new(leaderRoot.Position.X, 0, leaderRoot.Position.Z)
+			moveDirection = (flatLeader - flatChar).Unit
+		else
+			pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
+			local lookTarget = Vector3.new(leaderRoot.Position.X, rootPart.Position.Y, leaderRoot.Position.Z)
+			rootPart.CFrame = rootPart.CFrame:Lerp(CFrame.lookAt(rootPart.Position, lookTarget), 10 * deltaTime)
+			return
+		end
+		
+	else
+		leaderCharacter = nil
+		
+		if isResting then
+			restTimer = restTimer - deltaTime
+			if restTimer <= 0 then
+				isResting = false
+				targetPosition = calculateSmartLurkerPath() 
+			end
+			return
+		end
+		
+		local flatCharacterPos = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+		local flatTargetPos = Vector3.new(targetPosition.X, 0, targetPosition.Z)
+		local distance = (flatCharacterPos - flatTargetPos).Magnitude
+		
+		if distance > 3.5 then
+			destinationPos = targetPosition
+			moveDirection = (flatTargetPos - flatCharacterPos).Unit
+		else
+			isResting = true
+			restTimer = math.random(12, 22) / 10 
+			pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
+			return
+		end
 	end
 	
-	local flatCharacterPos = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
-	local flatTargetPos = Vector3.new(targetPosition.X, 0, targetPosition.Z)
-	local distance = (flatCharacterPos - flatTargetPos).Magnitude
-	
-	if distance > 3 then
-		local speed = 7.2 -- Velocidad de caminata acechante ajustada y natural
-		local moveDirection = (flatTargetPos - flatCharacterPos).Unit
-		
-		-- Desplazamiento cardinal continuo por CFrame
-		local nextPosition = rootPart.Position + moveDirection * (speed * deltaTime)
-		
-		-- Suavizado Lerp para giros orgánicos en las intersecciones del laboratorio
+	if destinationPos and moveDirection.Magnitude > 0 then
+		local nextPosition = rootPart.Position + moveDirection * (currentSpeed * deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
 		rootPart.CFrame = CFrame.lookAt(nextPosition, rootPart.Position + currentVisualHeading)
 		
-		-- Mantenemos activa la animación nativa de caminata
 		pcall(function()
-			humanoid.RootPart.AssemblyLinearVelocity = moveDirection * speed
+			humanoid.RootPart.AssemblyLinearVelocity = moveDirection * currentSpeed
 		end)
-	else
-		-- Al terminar la caminata larga, el Lurker se detiene a acechar la nueva zona
-		isResting = true
-		restTimer = math.random(12, 22) / 10 -- Pausa estática de 1.2 a 2.2 segundos
 		
-		pcall(function()
-			humanoid.RootPart.AssemblyLinearVelocity = Vector3.new()
-		end)
+		local obstacleRay = Workspace:Raycast(rootPart.Position, moveDirection * 3.5, rayParams)
+		if obstacleRay then humanoid.Jump = true end
 	end
+end)
+
+humanoid.Died:Connect(function()
+	screenGui:Destroy()
 end)
 
 humanoid.Died:Connect(function()
