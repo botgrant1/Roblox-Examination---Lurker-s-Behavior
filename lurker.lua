@@ -1,51 +1,84 @@
 --[[
-    LURKER & CHIMERA BEHAVIOR SIMULATOR - VERSION 10 (STABLE NODE PATROL)
+    LURKER EXPERIMENT - DEFINITIVE VERSION (LONG PATHS & ANTI-STUCK SYSTEM)
 --]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local PathfindingService = game:GetService("PathfindingService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- Apagar controles locales para evitar interferencias
+-- Forzamos el apagado completo de los scripts de control para erradicar los tirones
 pcall(function()
 	local playerModule = require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
 	if playerModule then playerModule:GetControls():Disable() end
 end)
 
-print("[IA Activa] Seleccionado estilo: LURKER. Moviéndose por nodos del servidor.")
+print("[IA Lurker] Inicializado con éxito. Buscando rutas largas de Sector.")
 
--- =========================================================================
--- CONFIGURACIÓN DE ACTITUD (¡Puedes cambiar "Lurker" por "Chimera" aquí!)
--- =========================================================================
-local IA_STYLE = "Lurker" -- Opciones: "Lurker" o "Chimera"
+-- Parámetros de comportamiento estrictos del Lurker
+local maxVisionDistance = 110
+local currentTarget = nil
 
-local patrolRadius = (IA_STYLE == "Lurker") and 70 or 20      -- Distancia de caminata
-local restTime = (IA_STYLE == "Lurker") and 1.5 or 0.2       -- Pausa al llegar al punto
-local patrolSpeed = (IA_STYLE == "Lurker") and 15 or 12      -- Velocidad al pasear
-local chaseSpeed = 24                                        -- Velocidad de carrera Lurker
+-- Configuración de patrulla de trayecto largo
+local moveDirection = rootPart.CFrame.LookVector
+local timeMovingOnCurrentPath = 0
+local maxPathTime = math.random(5, 8) -- Camina entre 5 y 8 segundos en línea recta antes de pausar
+local isResting = false
 
--- Configuración del creador de rutas nativo de Roblox
-local path = PathfindingService:CreatePath({
-	AgentRadius = 3,
-	AgentHeight = 6,
-	AgentCanJump = true,
-})
-
+-- Parámetros de Raycast para evadir cajas y muros de Examination
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- 1. FILTRO DE LÍNEA DE VISIÓN REALISTA
+-- 1. SISTEMA DE EVASIÓN DIAGONAL (Evita bucles de atrás hacia adelante)
+local function adjustDirectionForObstacles()
+	rayParams.FilterDescendantsInstances = {character}
+	
+	-- Escaneo desde las piernas y el torso
+	local origin = rootPart.Position + Vector3.new(0, -0.8, 0)
+	local forward = moveDirection.Unit
+	local right = Vector3.new(-forward.Z, 0, forward.X)
+	
+	-- 3 Rayos frontales de advertencia anticipada
+	local hitCenter = Workspace:Raycast(origin, forward * 8, rayParams)
+	local hitLeft = Workspace:Raycast(origin, (forward - right * 0.4).Unit * 7, rayParams)
+	local hitRight = Workspace:Raycast(origin, (forward + right * 0.4).Unit * 7, rayParams)
+	
+	if hitCenter or hitLeft or hitRight then
+		-- Salto automático instantáneo si la caja u objeto es bajo
+		humanoid.Jump = true
+		
+		-- Lanzamos dos rayos laterales profundos para buscar el escape del pasillo
+		local escapeLeft = Workspace:Raycast(origin, -right * 14, rayParams)
+		local escapeRight = Workspace:Raycast(origin, right * 14, rayParams)
+		
+		-- En lugar de dar la vuelta completa (atrás), se desvía de forma fluida hacia los lados
+		if not escapeLeft then
+			moveDirection = (-right + forward * 0.5).Unit
+		elseif not escapeRight then
+			moveDirection = (right + forward * 0.5).Unit
+		else
+			-- Si está totalmente acorralado por cajas y muros, calcula un ángulo aleatorio oblicuo
+			local randomAngle = math.rad(math.random(110, 250))
+			moveDirection = CFrame.Angles(0, randomAngle, 0) * moveDirection
+		end
+		
+		-- Reiniciamos el temporizador del trayecto para que no se canse en medio del desvío
+		timeMovingOnCurrentPath = 0
+	end
+end
+
+-- 2. FILTRO DE LÍNEA DE VISIÓN PARA ENTIDADES
 local function hasLineOfSight(enemyRoot)
 	rayParams.FilterDescendantsInstances = {character}
+	
 	local toEnemy = (enemyRoot.Position - rootPart.Position).Unit
 	local dotProduct = rootPart.CFrame.LookVector:Dot(toEnemy)
 	
-	if dotProduct < 0.65 then return false end -- Cono frontal de visión
+	if dotProduct < 0.65 then return false end -- Campo de visión frontal de 90 grados
 	
 	local origin = rootPart.Position + Vector3.new(0, 2, 0)
 	local direction = (enemyRoot.Position - origin)
@@ -57,10 +90,10 @@ local function hasLineOfSight(enemyRoot)
 	return false
 end
 
--- 2. ESCÁNER DE ENTIDADES (Excluye jugadores reales)
+-- 3. ESCÁNER DE ENTIDADES (Ignora por completo a los jugadores)
 local function getVisibleEntity()
 	local target = nil
-	local closestDistance = 110
+	local closestDistance = maxVisionDistance
 	
 	for _, obj in ipairs(Workspace:GetDescendants()) do
 		if obj:IsA("Humanoid") and obj.Health > 0 then
@@ -82,78 +115,80 @@ local function getVisibleEntity()
 	return target
 end
 
--- 3. CAMINAR DE FORMA FLUIDA PUNTO POR PUNTO (Previene atascos en pasillos)
-local function walkToDestination(targetPosition, speed)
-	humanoid.WalkSpeed = speed
-	
-	local success, _ = pcall(function()
-		path:ComputeAsync(rootPart.Position, targetPosition)
-	end)
-	
-	if success and path.Status == Enum.PathStatus.Success then
-		local waypoints = path:GetWaypoints()
-		
-		-- Recorremos la ruta punto por punto de forma nativa
-		for i = 2, #waypoints do
-			-- Si en medio del trayecto de patrulla aparece una entidad, rompemos la caminata para atacar
-			if getVisibleEntity() then break end
-			if not humanoid or humanoid.Health <= 0 then break end
-			
-			local currentPoint = waypoints[i]
-			humanoid:MoveTo(currentPoint.Position)
-			
-			-- Si el mapa requiere saltar un objeto
-			if currentPoint.Action == Enum.PathWaypointAction.Jump then
-				humanoid.Jump = true
-			end
-			
-			-- Espera de forma segura a que el motor físico llegue al nodo actual (Máximo 2 segundos por nodo)
-			local reached = humanoid.MoveToFinished:Wait()
-			if not reached then break end -- Si se traba, rompe la ruta para recalcular
-		end
-	else
-		-- Respaldo físico directo si el Pathfinding del mapa falla
-		humanoid:MoveTo(targetPosition)
-		humanoid.MoveToFinished:Wait()
-	end
-end
+-- 4. INYECCIÓN DEL RENDER DE MOVIMIENTO (Fluidez a 60 FPS garantizada)
+local movementVector = Vector3.new()
 
--- 4. BUCLE PRINCIPAL DE COMPORTAMIENTO
+RunService.RenderStepped:Connect(function()
+	if not humanoid or humanoid.Health <= 0 then return end
+	
+	-- Control de orientación continuo para que gire el cuerpo con suavidad hacia donde camina
+	if movementVector.Magnitude > 0 and not currentTarget then
+		local targetLook = rootPart.Position + movementVector
+		rootPart.CFrame = rootPart.CFrame:Lerp(CFrame.new(rootPart.Position, Vector3.new(targetLook.X, rootPart.Position.Y, targetLook.Z)), 0.2)
+	end
+	
+	humanoid:Move(movementVector, false)
+end)
+
+-- 5. LOGICA LURKER: TRAYECTOS LARGOS, PAUSAS Y CAZA
 task.spawn(function()
-	while task.wait(0.1) do
+	while task.wait(0.05) do
 		if not humanoid or humanoid.Health <= 0 then break end
 		
-		local currentTarget = getVisibleEntity()
+		local visibleEntity = getVisibleEntity()
+		if visibleEntity then currentTarget = visibleEntity end
 		
-		-- ESTADO 1: PERSIGUIENDO ENMIGO (Agresivo, corre a donde vaya)
+		-- ESTADO 1: PERSIGUIENDO ENTIDAD (Sigue al objetivo rompiendo sectores)
 		if currentTarget and currentTarget.Parent and currentTarget.Parent:FindFirstChild("Humanoid") and currentTarget.Parent.Humanoid.Health > 0 then
+			isResting = false
 			local distance = (rootPart.Position - currentTarget.Position).Magnitude
 			
-			if distance <= 6.5 then
-				-- Frenar y atacar si está en rango
-				humanoid:MoveTo(rootPart.Position)
+			if distance > 140 then
+				currentTarget = nil
+				movementVector = Vector3.new()
+			elseif distance <= 6.5 then
+				-- Rango letal: Frenar y atacar
+				movementVector = Vector3.new()
 				local tool = character:FindFirstChildOfClass("Tool")
 				if tool then tool:Activate() end
-				task.wait(0.3)
 			else
-				-- Avanzar directamente hacia su posición actualizada
-				humanoid.WalkSpeed = chaseSpeed
-				humanoid:MoveTo(currentTarget.Position)
+				-- Carrera de persecución directa
+				humanoid.WalkSpeed = 24
+				rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(currentTarget.Position.X, rootPart.Position.Y, currentTarget.Position.Z))
+				movementVector = (currentTarget.Position - rootPart.Position).Unit
 			end
 			
-		-- ESTADO 2: PATRULLA ORGÁNICA (Vagar por el mapa)
+		-- ESTADO 2: PATRULLA ESTILO LURKER (Trayectos largos y pausas de acecho)
 		else
-			-- Elegimos un punto aleatorio en el mapa según el radio del estilo elegido
-			local randomAngle = math.rad(math.random(0, 360))
-			local randomDist = math.random(patrolRadius * 0.5, patrolRadius)
-			local targetPos = rootPart.Position + Vector3.new(math.cos(randomAngle) * randomDist, 0, math.sin(randomAngle) * randomDist)
+			currentTarget = nil
 			
-			-- Ejecuta la caminata completa de forma suave
-			walkToDestination(targetPos, patrolSpeed)
-			
-			-- Al llegar a su destino, hace la pausa característica del NPC antes de cambiar de rumbo
-			if not getVisibleEntity() then
-				task.wait(restTime)
+			if isResting then
+				movementVector = Vector3.new()
+			else
+				humanoid.WalkSpeed = 15
+				
+				-- Evaluamos constantemente si hay cajas o muros adelante para desviarnos sutilmente
+				adjustDirectionForObstacles()
+				movementVector = moveDirection
+				
+				-- Aumentamos el contador del trayecto largo actual
+				timeMovingOnCurrentPath = timeMovingOnCurrentPath + 0.05
+				
+				-- Al completar el trayecto largo, se detiene a acechar como el Lurker original
+				if timeMovingOnCurrentPath >= maxPathTime then
+					isResting = true
+					movementVector = Vector3.new()
+					
+					-- Pausa de 1.5 a 2 segundos en el sitio
+					task.wait(math.random(15, 20) / 10)
+					
+					-- Elige un rumbo totalmente nuevo y reinicia configuraciones
+					local randomAngle = math.rad(math.random(0, 360))
+					moveDirection = Vector3.new(math.cos(randomAngle), 0, math.sin(randomAngle)).Unit
+					maxPathTime = math.random(5, 8)
+					timeMovingOnCurrentPath = 0
+					isResting = false
+				end
 			end
 		end
 	end
