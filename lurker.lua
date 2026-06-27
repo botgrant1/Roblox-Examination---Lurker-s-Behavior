@@ -12,7 +12,7 @@ local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
 -- Variable global limpia
-getgenv().LurkerAI_Enabled = false
+getgenv().LurkerAI_Enabled = true
 
 -- =========================================================================
 -- INTERFAZ GRÁFICA (MENÚ DE CONTROL REPARADO)
