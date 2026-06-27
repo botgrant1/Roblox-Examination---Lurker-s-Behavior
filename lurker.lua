@@ -1,5 +1,5 @@
 --[[
-    LURKER SIMULATOR - VERSION DE DESLIZAMIENTO CARDINAL (ANTI-BLOQUEO)
+    LURKER AUTOPILOT - VERSION 15 (ANIMATION SYNC & REALSPEED CALIBRATION)
 --]]
 
 local Players = game:GetService("Players")
@@ -57,7 +57,7 @@ local buttonCorner = Instance.new("UICorner")
 buttonCorner.CornerRadius = UDim.new(0, 6)
 buttonCorner.Parent = toggleButton
 
--- Variables de control de patrulla
+-- Variables de control de patrulla calibradas
 local targetPosition = rootPart.Position
 local isResting = false
 local restTimer = 0
@@ -77,7 +77,7 @@ toggleButton.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- DETECTOR DE PASILLOS REALISTAS (SISTEMA CARDINAL ABIERTO)
+-- DETECTOR DE PASILLOS REALISTAS
 -- =========================================================================
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -89,66 +89,71 @@ local function calculateNewPatrolPoint()
 	local bestPoint = rootPart.Position
 	local maxFreeSpace = 0
 	
-	-- Escanea 12 direcciones fijas del mapa (Ignorando hacia dónde miras tú)
 	for i = 1, 12 do
 		local angle = math.rad(i * (360 / 12))
-		local distance = math.random(40, 75) -- Trayectos largos estilo Lurker
+		local distance = math.random(45, 75) -- Caminatas largas de exploración
 		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
 		
 		local rayResult = Workspace:Raycast(origin, direction * distance, rayParams)
 		local freeDistance = rayResult and (rayResult.Position - rootPart.Position).Magnitude or distance
 		
-		-- Buscamos el pasillo más largo disponible
 		if freeDistance > maxFreeSpace and freeDistance > 15 then
 			maxFreeSpace = freeDistance
-			bestPoint = rootPart.Position + direction * (freeDistance - 6) -- Dejamos margen para no chocar
+			bestPoint = rootPart.Position + direction * (freeDistance - 6)
 		end
 	end
 	return bestPoint
 end
 
 -- =========================================================================
--- BUCLE MOTOR (CORRE EN CADA FOTOGRAMA - 0 TIRONES)
+-- MOTOR DE DESLIZAMIENTO CON SINCRONIZACIÓN DE ANIMACIONES
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
-	-- Si está en su pausa estática de acechando, reducimos el tiempo y no nos movemos
+	-- Si está quieto acechando, mantenemos la animación Idle por defecto
 	if isResting then
 		restTimer = restTimer - deltaTime
 		if restTimer <= 0 then
 			isResting = false
-			targetPosition = calculateNewPatrolPoint() -- Elige pasillo al terminar de acechar
+			targetPosition = calculateNewPatrolPoint()
 		end
 		return
 	end
 	
-	-- Calculamos la distancia en línea recta hacia el pasillo abierto elegido
 	local flatCharacterPos = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
 	local flatTargetPos = Vector3.new(targetPosition.X, 0, targetPosition.Z)
 	local distance = (flatCharacterPos - flatTargetPos).Magnitude
 	
 	if distance > 3 then
-		-- Velocidad del Lurker al patrullar (16 studs por segundo)
-		local speed = 16
+		-- CALIBRACIÓN: 13.5 studs/sec es la velocidad exacta de caminata acechante del Lurker
+		local speed = 13.5 
 		local moveDirection = (flatTargetPos - flatCharacterPos).Unit
 		
-		-- TRUCO DEFINITIVO: Desplazamos el CFrame del personaje de forma matemática.
-		-- Esto ignora al 100% los controles de Roblox y hacia dónde apunte tu cámara.
+		-- Desplazamiento matemático por CFrame
 		local nextPosition = rootPart.Position + moveDirection * (speed * deltaTime)
-		
-		-- Forzamos al cuerpo a mirar hacia donde avanza de forma fluida
 		rootPart.CFrame = CFrame.lookAt(nextPosition, Vector3.new(targetPosition.X, rootPart.Position.Y, targetPosition.Z))
 		
-		-- Mini Raycast de emergencia por si hay un escalón o caja decorativa baja en medio, forzar salto
-		local obstacleRay = Workspace:Raycast(rootPart.Position, moveDirection * 3, rayParams)
+		-- TRUCO DE ANIMACIÓN: Forzamos al script 'Animate' del juego a detectar movimiento real.
+		-- Le inyectamos una velocidad virtual para que empiece a mover las piernas de forma natural.
+		pcall(function()
+			humanoid.RootPart.AssemblyLinearVelocity = moveDirection * speed
+		end)
+		
+		-- Salto automático si topamos con obstáculos bajos
+		local obstacleRay = Workspace:Raycast(rootPart.Position, moveDirection * 3.5, rayParams)
 		if obstacleRay then
 			humanoid.Jump = true
 		end
 	else
-		-- ¡Llegamos al final del pasillo despejado! Iniciamos pausa estática estilo Lurker
+		-- Llegamos al final del pasillo: entramos en pausa estática
 		isResting = true
-		restTimer = math.random(15, 25) / 10 -- Entre 1.5 y 2.5 segundos quieto acechando
+		restTimer = math.random(15, 25) / 10 -- Pausa de 1.5 a 2.5 segundos
+		
+		-- Frenamos la velocidad virtual para que regrese de inmediato a la animación Idle
+		pcall(function()
+			humanoid.RootPart.AssemblyLinearVelocity = Vector3.new()
+		end)
 	end
 end)
 
