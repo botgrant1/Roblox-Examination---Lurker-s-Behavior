@@ -1,41 +1,70 @@
 --[[
-    LURKER AUTOPILOT - VERSION 5 (STABLE PATHFINDING, RANDOM PATROL & ENTITY FILTER)
+    LURKER AUTOPILOT - VERSION 6 (RAYCAST AVOIDANCE - ANTI-LAG)
 --]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local PathfindingService = game:GetService("PathfindingService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
-print("[Lurker Exploit] Versión 5 Cargada: Patrulla aleatoria fluida y filtro estricto de Entidades.")
+print("[Lurker Exploit] Versión 6: Movimiento continuo por Raycast (Sin tirones).")
 
--- Configuración del Pathfinding
-local path = PathfindingService:CreatePath({
-	AgentRadius = 3,
-	AgentHeight = 6,
-	AgentCanJump = true,
-})
+-- Configuraciones de visión y físicas
+local maxVisionDistance = 120
+local currentTarget = nil
+local patrolDirection = rootPart.CFrame.LookVector
 
-local visionParams = RaycastParams.new()
-visionParams.FilterType = Enum.RaycastFilterType.Exclude
+-- Parámetros globales para ignorar tu propio cuerpo al lanzar rayos
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- Función para verificar línea de visión real
+-- 1. DETECTOR DE PAREDES (Previene choques de forma realista)
+local function checkObstaclesAndSteer()
+	rayParams.FilterDescendantsInstances = {character}
+	
+	-- Lanzamos un rayo principal hacia adelante para ver si hay una pared cerca
+	local forwardRay = Workspace:Raycast(rootPart.Position, patrolDirection * 8, rayParams)
+	
+	if forwardRay and not forwardRay.Instance:IsDescendantOf(character) then
+		-- Si detectamos una pared, elegimos una nueva dirección girando a la izquierda o derecha
+		local leftVector = -rootPart.CFrame.RightVector
+		local rightVector = rootPart.CFrame.RightVector
+		
+		-- Evaluamos cuál lado está más despejado lanzando dos rayos laterales
+		local rayLeft = Workspace:Raycast(rootPart.Position, leftVector * 12, rayParams)
+		local rayRight = Workspace:Raycast(rootPart.Position, rightVector * 12, rayParams)
+		
+		if not rayLeft then
+			patrolDirection = (patrolDirection + leftVector * 1.5).Unit
+		elseif not rayRight then
+			patrolDirection = (patrolDirection + rightVector * 1.5).Unit
+		else
+			-- Si ambos lados están bloqueados, gira completamente hacia atrás
+			patrolDirection = -patrolDirection
+		end
+		
+		-- Si nos pegamos mucho a un objeto bajo, forzamos un salto automático
+		if (forwardRay.Position - rootPart.Position).Magnitude < 4 then
+			humanoid.Jump = true
+		end
+	end
+end
+
+-- 2. FILTRO DE LÍNEA DE VISIÓN PARA ENTIDADES
 local function hasLineOfSight(enemyRoot)
-	visionParams.FilterDescendantsInstances = {character}
+	rayParams.FilterDescendantsInstances = {character}
 	
 	local toEnemy = (enemyRoot.Position - rootPart.Position).Unit
-	local lookDirection = rootPart.CFrame.LookVector
-	local dotProduct = lookDirection:Dot(toEnemy)
+	local dotProduct = rootPart.CFrame.LookVector:Dot(toEnemy)
 	
-	if dotProduct < 0.65 then return false end -- Cono de visión amplio al frente
+	if dotProduct < 0.65 then return false end -- Cono frontal de 90 grados
 	
 	local origin = rootPart.Position + Vector3.new(0, 2, 0)
 	local direction = (enemyRoot.Position - origin)
-	local rayResult = Workspace:Raycast(origin, direction, visionParams)
+	local rayResult = Workspace:Raycast(origin, direction, rayParams)
 	
 	if rayResult and rayResult.Instance:IsDescendantOf(enemyRoot.Parent) then
 		return true
@@ -43,25 +72,21 @@ local function hasLineOfSight(enemyRoot)
 	return false
 end
 
--- Buscador de ENTIDADES reales (Ignora jugadores)
+-- 3. BUSCADOR DE ENMIGOS (Solo NPCs/Entidades)
 local function getVisibleEntity()
 	local target = nil
-	local maxDistance = 120
+	local closestDistance = maxVisionDistance
 	
 	for _, obj in ipairs(Workspace:GetDescendants()) do
 		if obj:IsA("Humanoid") and obj.Health > 0 then
 			local enemyCharacter = obj.Parent
-			
-			-- FILTRO ESTRICTO: Debe ser un modelo vivo, que NO seas tú y NO debe ser un jugador real
 			if enemyCharacter and enemyCharacter:IsA("Model") and enemyCharacter ~= character then
-				local isRealPlayer = Players:GetPlayerFromCharacter(enemyCharacter)
-				
-				if not isRealPlayer then -- Si no es un jugador, es una entidad/NPC del mapa
+				if not Players:GetPlayerFromCharacter(enemyCharacter) then -- Filtra solo bots
 					local enemyRoot = enemyCharacter:FindFirstChild("HumanoidRootPart")
 					if enemyRoot and hasLineOfSight(enemyRoot) then
 						local distance = (rootPart.Position - enemyRoot.Position).Magnitude
-						if distance < maxDistance then
-							maxDistance = distance
+						if distance < closestDistance then
+							closestDistance = distance
 							target = enemyRoot
 						end
 					end
@@ -72,94 +97,44 @@ local function getVisibleEntity()
 	return target
 end
 
--- Variables de control de movimiento fluido
-local currentTarget = nil
-local lastTargetPos = Vector3.new()
-local patrolPoint = nil
-local currentWaypointIndex = 1
-local waypoints = {}
-
--- Función auxiliar para seguir rutas de forma fluida y sin tirones
-local function followPath(destination, speed)
-	humanoid.WalkSpeed = speed
-	
-	-- Solo calculamos una ruta nueva si el destino cambió considerablemente (Evita tirones)
-	if (destination - lastTargetPos).Magnitude > 5 or #waypoints == 0 then
-		lastTargetPos = destination
-		local success, _ = pcall(function()
-			path:ComputeAsync(rootPart.Position, destination)
-		end)
-		
-		if success and path.Status == Enum.PathStatus.Success then
-			waypoints = path:GetWaypoints()
-			currentWaypointIndex = 2 -- Empezamos en el segundo punto para evitar micro-pausas
-		else
-			humanoid:MoveTo(destination) -- Respaldo directo en caso de fallo
-			return
-		end
-	end
-	
-	-- Navegación fluida punto por punto de la ruta actual
-	if waypoints and currentWaypointIndex <= #waypoints then
-		local currentWaypoint = waypoints[currentWaypointIndex]
-		humanoid:MoveTo(currentWaypoint.Position)
-		
-		if currentWaypoint.Action == Enum.PathWaypointAction.Jump then
-			humanoid.Jump = true
-		end
-		
-		-- Si estamos lo suficientemente cerca del punto de control actual, avanzamos al siguiente
-		if (rootPart.Position - currentWaypoint.Position).Magnitude < 4 then
-			currentWaypointIndex = currentWaypointIndex + 1
-		end
-	else
-		humanoid:MoveTo(destination)
-	end
-end
-
--- Bucle principal optimizado
+-- 4. BUCLE PRINCIPAL DE MOVIMIENTO CONTINUO (Cero tirones)
 task.spawn(function()
-	while task.wait(0.1) do
+	while task.wait(0.05) do -- Ciclo rápido y ultraligero para simular físicas naturales
 		if not humanoid or humanoid.Health <= 0 then break end
 		
 		local visibleEntity = getVisibleEntity()
 		if visibleEntity then
 			currentTarget = visibleEntity
-			patrolPoint = nil -- Cancelamos patrulla si hay acción
 		end
 		
-		-- ESTADO 1: PERSEGUIR ENTIDAD DETECTADA
+		-- COMPORTAMIENTO DE COMBATE (Si ve una entidad)
 		if currentTarget and currentTarget.Parent and currentTarget.Parent:FindFirstChild("Humanoid") and currentTarget.Parent.Humanoid.Health > 0 then
-			local distanceToEnemy = (rootPart.Position - currentTarget.Position).Magnitude
+			local distance = (rootPart.Position - currentTarget.Position).Magnitude
 			
-			if distanceToEnemy > 140 then -- Si se escapó muy lejos, lo pierde de vista
+			if distance > 130 then -- El enemigo escapó de la zona
 				currentTarget = nil
-			elseif distanceToEnemy <= 7 then
-				-- Rango de ataque automático
+			elseif distance <= 7 then
+				-- Rango de ataque cuerpo a cuerpo automático
 				local tool = character:FindFirstChildOfClass("Tool")
 				if tool then tool:Activate() end
-				humanoid:MoveTo(currentTarget.Position)
+				humanoid:Move(Vector3.new(0,0,0)) -- Se detiene a atacar
 			else
-				-- Persecución fluida a velocidad de Lurker (24)
-				followPath(currentTarget.Position, 24)
+				-- Avanzar de forma fluida hacia el objetivo visible
+				humanoid.WalkSpeed = 24
+				local directionToEnemy = (currentTarget.Position - rootPart.Position).Unit
+				humanoid:Move(directionToEnemy)
 			end
 			
-		-- ESTADO 2: DEAMBULAR RANDOM (PATRULLA PASIVA)
+		-- COMPORTAMIENTO DE PATRULLA INTELIGENTE (Deambular solo)
 		else
 			currentTarget = nil
+			humanoid.WalkSpeed = 15
 			
-			-- Si no tenemos un punto de patrulla asignado o ya casi llegamos al actual, elegimos uno nuevo
-			if not patrolPoint or (rootPart.Position - patrolPoint).Magnitude < 5 then
-				waypoints = {} -- Reseteamos ruta anterior
-				-- Elige una dirección aleatoria en un radio de 40 a 60 unidades a la redonda
-				local randomAngle = math.rad(math.random(0, 360))
-				local randomDistance = math.random(40, 60)
-				local offset = Vector3.new(math.cos(randomAngle) * randomDistance, 0, math.sin(randomAngle) * randomDistance)
-				patrolPoint = rootPart.Position + offset
-			end
+			-- Analiza el entorno en busca de colisiones antes de dar el siguiente paso
+			checkObstaclesAndSteer()
 			
-			-- Camina de forma realista hacia el punto aleatorio respetando las paredes (Velocidad normal: 16)
-			followPath(patrolPoint, 16)
+			-- Mueve al personaje continuamente hacia la dirección libre calculada
+			humanoid:Move(patrolDirection)
 		end
 	end
 end)
