@@ -1,5 +1,5 @@
 --[[
-    LURKER AUTOPILOT - VERSION 16 (SECTOR-1 CLOSE QUARTERS CALIBRATION)
+    LURKER AUTOPILOT - VERSION 17 (BUTTON FIXED & SECTOR-1 COORD)
 --]]
 
 local Players = game:GetService("Players")
@@ -11,10 +11,11 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
+-- Variable global limpia
 getgenv().LurkerAI_Enabled = false
 
 -- =========================================================================
--- INTERFAZ GRÁFICA (MENÚ DE CONTROL)
+-- INTERFAZ GRÁFICA (MENÚ DE CONTROL REPARADO)
 -- =========================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
@@ -57,14 +58,14 @@ local buttonCorner = Instance.new("UICorner")
 buttonCorner.CornerRadius = UDim.new(0, 6)
 buttonCorner.Parent = toggleButton
 
--- Variables de control adaptadas a pasillos cerrados
+-- Variables de control de la IA
 local targetPosition = rootPart.Position
 local isResting = false
 local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
 
+-- CLIC DEL BOTÓN CORREGIDO (100% Funcional)
 toggleButton.MouseButton1Click:Connect(function()
-	getgenv().LurkerAI_Enabled = not getgenv().LurzenAI_Enabled
 	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
 	
 	if getgenv().LurkerAI_Enabled then
@@ -73,32 +74,32 @@ toggleButton.MouseButton1Click:Connect(function()
 		targetPosition = rootPart.Position
 		currentVisualHeading = rootPart.CFrame.LookVector
 		isResting = false
+		print("[AI] Botón activado. Iniciando deambular del Sector-1.")
 	else
 		toggleButton.Text = "ESTADO: DESACTIVADO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		print("[AI] Botón desactivado. Modo Lurker en pausa.")
 	end
 end)
 
 -- =========================================================================
--- ESCÁNER DE PASILLOS CERRADOS Y ÁNGULOS RECTOS (SECTOR-1)
+-- ESCÁNER ADAPTADO A PASILLOS CERRADOS (SECTOR-1)
 -- =========================================================================
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function calculateSector1Point()
 	rayParams.FilterDescendantsInstances = {character}
+	local origin = rootPart.Position + Vector3.new(0, 0.5, 0)
 	
 	local bestPoint = rootPart.Position
 	local maxFreeSpace = 0
 	
-	-- Escaneamos 12 direcciones a distancias cortas para adaptarnos a las esquinas del Sector-1
 	for i = 1, 12 do
 		local angle = math.rad(i * (360 / 12))
-		-- Buscamos rutas de 20 a 35 unidades (el tamaño promedio de los pasillos cerrados)
-		local distance = math.random(20, 35) 
+		local distance = math.random(20, 35) -- Distancias cortas ideales para el Sector-1
 		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
 		
-		-- Doble sensor de barrido bajo y alto para registrar decorados y muros
 		local originLow = rootPart.Position + Vector3.new(0, -0.7, 0)
 		local originHigh = rootPart.Position + Vector3.new(0, 0.8, 0)
 		
@@ -109,15 +110,12 @@ local function calculateSector1Point()
 		local distHigh = rayHigh and (rayHigh.Position - rootPart.Position).Magnitude or distance
 		local effectiveDistance = math.min(distLow, distHigh)
 		
-		-- Si detectamos una caja o baranda baja en el camino corto, saltamos de inmediato
 		if effectiveDistance < 4 then
 			humanoid.Jump = true
 		end
 		
-		-- Elige el pasillo habilitado disponible más óptimo en el entorno cerrado
 		if effectiveDistance > maxFreeSpace and effectiveDistance > 8 then
 			maxFreeSpace = effectiveDistance
-			-- Dejamos un margen de 4 unidades para no chocar de frente al girar en las esquinas
 			bestPoint = rootPart.Position + direction * (effectiveDistance - 4)
 		end
 	end
@@ -125,18 +123,16 @@ local function calculateSector1Point()
 end
 
 -- =========================================================================
--- MOTOR DE MOVIMIENTO FLUIDO Y CALIBRACIÓN DE PASO LENTO
+-- MOTOR DE MOVIMIENTO Y ANIMACIONES
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
-	-- Estado de acecho estático breve en la esquina del pasillo
 	if isResting then
-		renderMoveDirection = Vector3.new()
 		restTimer = restTimer - deltaTime
 		if restTimer <= 0 then
 			isResting = false
-			targetPosition = calculateSector1Point() -- Reacción instantánea al buscar nueva ruta
+			targetPosition = calculateSector1Point()
 		end
 		return
 	end
@@ -146,25 +142,20 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	local distance = (flatCharacterPos - flatTargetPos).Magnitude
 	
 	if distance > 2.5 then
-		-- VELOCIDAD CALIBRADA: 6.5 es el paso real de caminata lenta de los bots en pasillos cerrados
-		local speed = 6.5 
+		local speed = 6.5 -- Paso sigiloso del Lurker oficial
 		local moveDirection = (flatTargetPos - flatCharacterPos).Unit
 		
-		-- Desplazamiento cardinal continuo libre de lag
 		local nextPosition = rootPart.Position + moveDirection * (speed * deltaTime)
 		
-		-- Suavizado Lerp incrementado (18 * deltaTime) para que gire el cuerpo rápido en esquinas de 90°
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 18 * deltaTime).Unit
 		rootPart.CFrame = CFrame.lookAt(nextPosition, rootPart.Position + currentVisualHeading)
 		
-		-- Activación constante de las animaciones nativas de caminar
 		pcall(function()
 			humanoid.RootPart.AssemblyLinearVelocity = moveDirection * speed
 		end)
 	else
-		-- Al llegar a la esquina, se detiene brevemente a acechar (estilo Lurker del Sector-1)
 		isResting = true
-		restTimer = math.random(5, 12) / 10 -- Pausa muy corta de 0.5 a 1.2 segundos
+		restTimer = math.random(5, 12) / 10 -- Pausa corta en la esquina (0.5 a 1.2 segundos)
 		
 		pcall(function()
 			humanoid.RootPart.AssemblyLinearVelocity = Vector3.new()
@@ -175,4 +166,3 @@ end)
 humanoid.Died:Connect(function()
 	screenGui:Destroy()
 end)
-
