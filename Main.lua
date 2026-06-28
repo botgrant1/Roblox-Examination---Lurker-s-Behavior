@@ -37,7 +37,7 @@ uiCorner.Parent = mainFrame
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, 0, 0, 35)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "LURKER AUTOPILOT"
+titleLabel.Text = "Solara´s Bot Behavior (SIMPLE)"
 titleLabel.TextColor3 = Color3.fromRGB(200, 50, 50)
 titleLabel.TextSize = 14
 titleLabel.Font = Enum.Font.SourceSansBold
@@ -47,7 +47,7 @@ local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 180, 0, 45)
 toggleButton.Position = UDim2.new(0, 20, 0, 55)
 toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-toggleButton.Text = "ESTADO: DESACTIVADO"
+toggleButton.Text = "STATE: DEACTIVATED"
 toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.TextSize = 14
 toggleButton.Font = Enum.Font.SourceSans
@@ -76,7 +76,7 @@ toggleButton.MouseButton1Click:Connect(function()
 	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
 	
 	if getgenv().LurkerAI_Enabled then
-		toggleButton.Text = "ESTADO: ACTIVO"
+		toggleButton.Text = "STATE: ACTIVE"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
 		targetPosition = rootPart.Position
 		currentVisualHeading = rootPart.CFrame.LookVector
