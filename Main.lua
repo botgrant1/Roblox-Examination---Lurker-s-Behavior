@@ -1,6 +1,6 @@
 --[[
-    LURKER AUTOPILOT - PARTE 1 (MENÚ UI Y ESCÁNER INTELIGENTE)
-    Pega este bloque al inicio de tu archivo en GitHub.
+    LURKER AUTOPILOT - PARTE 1 (CORE DE EVASIÓN SIN BUCLOS)
+    Pega esto al inicio de tu archivo lurker.lua en GitHub.
 --]]
 
 local Players = game:GetService("Players")
@@ -14,9 +14,7 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 
 getgenv().LurkerAI_Enabled = false
 
--- =========================================================================
--- INTERFAZ GRÁFICA (MENÚ DE CONTROL ESTABLE)
--- =========================================================================
+-- Interfaz Gráfica Estable
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
 screenGui.ResetOnSpawn = false
@@ -59,10 +57,12 @@ buttonCorner.CornerRadius = UDim.new(0, 6)
 buttonCorner.Parent = toggleButton
 
 -- Variables fundamentales de control
-local targetPosition = rootPart.Position
+getgenv().TargetLurkerPosition = rootPart.Position
 local isResting = false
 local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
+local lastVisitedPosition = rootPart.Position
+local lastEvasionCheck = 0
 
 -- Variables del sistema de comandos de voz Z
 local leaderCharacter = nil      
@@ -70,23 +70,19 @@ local lastLeaderMoveTime = 0
 local leaderLastPos = Vector3.new()
 local voiceCommandRange = 45     
 
--- Sistema de memoria a corto plazo optimizado
-local lastVisitedPosition = rootPart.Position
-local lastEvasionCheck = 0
-
 toggleButton.MouseButton1Click:Connect(function()
 	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
 	
 	if getgenv().LurkerAI_Enabled then
 		toggleButton.Text = "ESTADO: ACTIVO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
-		targetPosition = rootPart.Position
+		getgenv().TargetLurkerPosition = rootPart.Position
 		currentVisualHeading = rootPart.CFrame.LookVector
 		isResting = false
 		leaderCharacter = nil
 		lastVisitedPosition = rootPart.Position
 		lastEvasionCheck = 0
-		print("[AI] Inicializado modo estable con evasión por desvío lateral seguro.")
+		print("[AI] Inicializado motor con bypass anti-atasco de cajas.")
 	else
 		toggleButton.Text = "ESTADO: DESACTIVADO"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -94,30 +90,7 @@ toggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Oyente Táctico de Voicelines Z (Filtro Estricto de Examination)
-local function setupVoiceCommandListener(otherPlayer)
-	otherPlayer.Chatted:Connect(function(message)
-		if not getgenv().LurkerAI_Enabled or otherPlayer == player then return end 
-		local otherChar = otherPlayer.Character
-		if not otherChar or not otherChar:FindFirstChild("HumanoidRootPart") then return end
-		
-		local distanceToSpeaker = (rootPart.Position - otherChar.HumanoidRootPart.Position).Magnitude
-		if distanceToSpeaker <= voiceCommandRange then
-			if message == "Follow Me!" or message == "Follow me!" or message == "Sígueme!" or message == "Sigueme!" then
-				leaderCharacter = otherChar
-				leaderLastPos = otherChar.HumanoidRootPart.Position
-				lastLeaderMoveTime = os.clock()
-				isResting = false
-				print("[Voiceline Z] Siguiendo al aliado: " .. otherPlayer.Name)
-			end
-		end
-	end)
-end
-
-for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
-Players.PlayerAdded:Connect(setupVoiceCommandListener)
-
--- Escáner Inteligente de Pasillos (Mapeo del Sector-1)
+-- Escáner Inteligente de Pasillos
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -156,38 +129,70 @@ local function calculateSmartLurkerPath()
 end
 
 -- =========================================================================
--- FUNCIÓN DE EVASIÓN CORREGIDA (Giro lateral por matriz sin saltos y sin lag)
+-- OYENTE TÁCTICO DE VOICELINES Z
+-- =========================================================================
+local function setupVoiceCommandListener(otherPlayer)
+	otherPlayer.Chatted:Connect(function(message)
+		if not getgenv().LurkerAI_Enabled then return end
+		if otherPlayer == player then return end 
+		
+		local otherChar = otherPlayer.Character
+		if not otherChar or not otherChar:FindFirstChild("HumanoidRootPart") then return end
+		
+		local distanceToSpeaker = (rootPart.Position - otherChar.HumanoidRootPart.Position).Magnitude
+		
+		if distanceToSpeaker <= voiceCommandRange then
+			if message == "Follow Me!" or message == "Follow me!" or message == "Sígueme!" or message == "Sigueme!" then
+				leaderCharacter = otherChar
+				leaderLastPos = otherChar.HumanoidRootPart.Position
+				lastLeaderMoveTime = os.clock()
+				isResting = false
+				print("[Voiceline Z] Siguiendo a: " .. otherPlayer.Name)
+			end
+		end
+	end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
+Players.PlayerAdded:Connect(setupVoiceCommandListener)
+
+-- =========================================================================
+-- FUNCIÓN DE EVASIÓN AVANZADA (Solución definitiva para cajas enfrentadas)
 -- =========================================================================
 local function checkObstaclesAndSteer(currentDir)
-	if os.clock() - lastEvasionCheck < 0.06 then return currentDir end
+	if os.clock() - lastEvasionCheck < 0.05 then return currentDir end
 	lastEvasionCheck = os.clock()
 	
 	rayParams.FilterDescendantsInstances = {character}
-	local origin = rootPart.Position + Vector3.new(0, -0.4, 0) -- Altura baja para detectar cajas
+	local origin = rootPart.Position + Vector3.new(0, -0.4, 0)
 	local forward = currentDir.Unit
 	
-	-- Creamos vectores de desvío fijos a 45 grados a la izquierda y derecha
 	local leftSteer = Vector3.new(-forward.Z, 0, forward.X).Unit
 	local rightSteer = Vector3.new(forward.Z, 0, -forward.X).Unit
 	
-	-- Matriz de 3 rayos tridimensionales cortos (7 studs)
-	local rayCenter = Workspace:Raycast(origin, forward * 7, rayParams)
-	local rayLeft = Workspace:Raycast(origin, (forward * 0.8 + leftSteer * 0.4).Unit * 6.5, rayParams)
-	local rayRight = Workspace:Raycast(origin, (forward * 0.8 + rightSteer * 0.4).Unit * 6.5, rayParams)
+	-- Sensores tridimensionales de proximidad corta
+	local rayCenter = Workspace:Raycast(origin, forward * 6.5, rayParams)
+	local rayLeft = Workspace:Raycast(origin, (forward * 0.8 + leftSteer * 0.4).Unit * 6, rayParams)
+	local rayRight = Workspace:Raycast(origin, (forward * 0.8 + rightSteer * 0.4).Unit * 6, rayParams)
 	
 	if rayCenter or rayLeft or rayRight then
-		-- Si hay obstrucción al frente o a los lados, escaneamos cuál flanco está más limpio
-		local checkLeft = Workspace:Raycast(origin, leftSteer * 10, rayParams)
-		local checkRight = Workspace:Raycast(origin, rightSteer * 10, rayParams)
+		local checkLeft = Workspace:Raycast(origin, leftSteer * 9, rayParams)
+		local checkRight = Workspace:Raycast(origin, rightSteer * 9, rayParams)
 		
 		if not checkLeft then
-			return (forward * 0.5 + leftSteer * 0.8).Unit -- Desvío curvo hacia la izquierda abierta
+			return (forward * 0.4 + leftSteer * 0.8).Unit
 		elseif not checkRight then
-			return (forward * 0.5 + rightSteer * 0.8).Unit -- Desvío curvo hacia la derecha abierta
+			return (forward * 0.4 + rightSteer * 0.8).Unit
 		else
-			-- Si ambos lados están totalmente bloqueados por muros, forzamos ruta nueva
-			targetPosition = calculateSmartLurkerPath()
-			return currentDir
+			-- CORRECCIÓN INTEGRAL: Si ambos flancos tienen cajas o muros (encajonado),
+			-- obligamos instantáneamente a la IA a calcular un pasillo nuevo en vez de trabarse.
+			local newPath = calculateSmartLurkerPath()
+			getgenv().TargetLurkerPosition = newPath
+			
+			-- Devolvemos la dirección exacta hacia el nuevo punto libre para romper el bucle rígido
+			local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+			local flatNewPath = Vector3.new(newPath.X, 0, newPath.Z)
+			return (flatNewPath - flatChar).Unit
 		end
 	end
 	
@@ -195,7 +200,7 @@ local function checkObstaclesAndSteer(currentDir)
 end
 
 -- =========================================================================
--- MOTOR DE MOVIMIENTO GENERAL (SOLO PATRULLA Y SEGUIMIENTO Z)
+-- MOTOR DE MOVIMIENTO GENERAL CORREGIDO
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
@@ -204,7 +209,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	local moveDirection = Vector3.new()
 	local destinationPos = nil
 	
-	-- ESCORTANDO A JUGADOR (ORDEN "FOLLOW ME")
+	-- MODO: FOLLOW ME ACTIVADO
 	if leaderCharacter and leaderCharacter:FindFirstChild("HumanoidRootPart") and leaderCharacter:FindFirstChild("Humanoid") and leaderCharacter.Humanoid.Health > 0 then
 		local leaderRoot = leaderCharacter.HumanoidRootPart
 		local distanceToLeader = (rootPart.Position - leaderRoot.Position).Magnitude
@@ -216,7 +221,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		
 		if (os.clock() - lastLeaderMoveTime) > 15 then
 			leaderCharacter = nil
-			targetPosition = calculateSmartLurkerPath()
+			getgenv().TargetLurkerPosition = calculateSmartLurkerPath()
 			return
 		end
 		
@@ -234,26 +239,26 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			return
 		end
 		
-	-- PATRULLA DE ACECHO ESTÁNDAR
+	-- MODO: PATRULLA DE ACECHO INFINITA
 	else
 		if isResting then
 			restTimer = restTimer - deltaTime
 			if restTimer <= 0 then
 				isResting = false
-				targetPosition = calculateSmartLurkerPath() 
+				getgenv().TargetLurkerPosition = calculateSmartLurkerPath() 
 			end
 			return
 		end
 		
 		local flatCharacterPos = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
-		local flatTargetPos = Vector3.new(targetPosition.X, 0, targetPosition.Z)
+		local flatTargetPos = Vector3.new(getgenv().TargetLurkerPosition.X, 0, getgenv().TargetLurkerPosition.Z)
 		local distance = (flatCharacterPos - flatTargetPos).Magnitude
 		
 		if distance > 3.5 then
-			destinationPos = targetPosition
+			destinationPos = getgenv().TargetLurkerPosition
 			local rawDirection = (flatTargetPos - flatCharacterPos).Unit
 			
-			-- Aplicamos la corrección de rumbo segura antes de que toque las cajas
+			-- La función ahora devuelve el nuevo rumbo limpio si detecta que estás atrapado
 			moveDirection = checkObstaclesAndSteer(rawDirection)
 		else
 			isResting = true
@@ -263,7 +268,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		end
 	end
 	
-	-- Ejecución de traslación común en el mapa
+	-- Traslación física final fluida
 	if destinationPos and moveDirection.Magnitude > 0 then
 		local nextPosition = rootPart.Position + moveDirection * (currentSpeed * deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
