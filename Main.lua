@@ -157,57 +157,7 @@ for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
 Players.PlayerAdded:Connect(setupVoiceCommandListener)
 
 -- =========================================================================
--- FUNCIÓN DE EVASIÓN AVANZADA (Modo de Giro Prioritario Temporal)
--- =========================================================================
-local function checkObstaclesAndSteer(currentDir, deltaTime)
-	-- SISTEMA DE ESCAPE REFORZADO: Si el interruptor de huida está activo, mantiene el rumbo de escape
-	if forcedEscapeTimer > 0 then
-		forcedEscapeTimer = forcedEscapeTimer - deltaTime
-		return forcedEscapeDirection
-	end
-
-	if os.clock() - lastEvasionCheck < 0.06 then return currentDir end
-	lastEvasionCheck = os.clock()
-	
-	rayParams.FilterDescendantsInstances = {character}
-	local origin = rootPart.Position + Vector3.new(0, -0.4, 0)
-	local forward = currentDir.Unit
-	
-	local leftSteer = Vector3.new(-forward.Z, 0, forward.X).Unit
-	local rightSteer = Vector3.new(forward.Z, 0, -forward.X).Unit
-	
-	-- Matriz de 3 rayos tridimensionales cortos (7 studs)
-	local rayCenter = Workspace:Raycast(origin, forward * 7, rayParams)
-	local rayLeft = Workspace:Raycast(origin, (forward * 0.8 + leftSteer * 0.4).Unit * 6.5, rayParams)
-	local rayRight = Workspace:Raycast(origin, (forward * 0.8 + rightSteer * 0.4).Unit * 6.5, rayParams)
-	
-	if rayCenter or rayLeft or rayRight then
-		local checkLeft = Workspace:Raycast(origin, leftSteer * 10, rayParams)
-		local checkRight = Workspace:Raycast(origin, rightSteer * 10, rayParams)
-		
-		if not checkLeft then
-			return (forward * 0.5 + leftSteer * 0.8).Unit
-		elseif not checkRight then
-			return (forward * 0.5 + rightSteer * 0.8).Unit
-		else
-			-- TRUCO CORE: Si ambos lados están bloqueados (dos cajas frente a frente)
-			-- Activamos el Steering Lock por 0.8 segundos para dar la vuelta sin interferencias
-			forcedEscapeTimer = 0.8
-			
-			-- Recalculamos un pasillo largo nuevo inmediatamente
-			targetPosition = calculateSmartLurkerPath()
-			
-			-- El vector de escape forzado apuntará estrictamente en sentido contrario (180°)
-			forcedEscapeDirection = -forward
-			return forcedEscapeDirection
-		end
-	end
-	
-	return currentDir
-end
-
--- =========================================================================
--- MOTOR DE MOVIMIENTO GENERAL (SOLO PATRULLA Y SEGUIMIENTO Z)
+-- MOTOR DE MOVIMIENTO GENERAL (SOLO PATRULLA Y SEGUIMIENTO Z - RENDIMIENTO MÁXIMO)
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
@@ -218,7 +168,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	
 	-- ESCORTANDO A JUGADOR (ORDEN "FOLLOW ME")
 	if leaderCharacter and leaderCharacter:FindFirstChild("HumanoidRootPart") and leaderCharacter:FindFirstChild("Humanoid") and leaderCharacter.Humanoid.Health > 0 then
-		forcedEscapeTimer = 0 -- Cancela bloqueos si hay orden directa
 		local leaderRoot = leaderCharacter.HumanoidRootPart
 		local distanceToLeader = (rootPart.Position - leaderRoot.Position).Magnitude
 		
@@ -250,7 +199,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	-- PATRULLA DE ACECHO ESTÁNDAR
 	else
 		if isResting then
-			forcedEscapeTimer = 0
 			restTimer = restTimer - deltaTime
 			if restTimer <= 0 then
 				isResting = false
@@ -265,10 +213,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		
 		if distance > 3.5 then
 			destinationPos = targetPosition
-			local rawDirection = (flatTargetPos - flatCharacterPos).Unit
-			
-			-- Pasamos el deltaTime para controlar el temporizador de escape prioritario
-			moveDirection = checkObstaclesAndSteer(rawDirection, deltaTime)
+			moveDirection = (flatTargetPos - flatCharacterPos).Unit
 		else
 			isResting = true
 			restTimer = math.random(3, 6) / 10 
@@ -277,7 +222,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		end
 	end
 	
-	-- Ejecución de traslación común y fluida en el mapa
+	-- Ejecución de traslación común y ultra optimizada en el mapa
 	if destinationPos and moveDirection.Magnitude > 0 then
 		local nextPosition = rootPart.Position + moveDirection * (currentSpeed * deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
