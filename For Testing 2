@@ -1,5 +1,6 @@
 --[[
-    LURKER AUTOPILOT - EDICIÓN GILBERT (MENÚ PREMIUM & DEBUG - CORREGIDO)
+    LURKER AUTOPILOT - GILBERT EDITION (PREMIUM & DEBUG MENU)
+    Fix: Destination reset on toggle & full English translation.
 --]]
 
 local Players = game:GetService("Players")
@@ -11,17 +12,17 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- Variables globales de configuración
+-- Global configuration variables
 getgenv().LurkerAI_Enabled = false
 getgenv().GilbertFootSpeed = 1.7 
 
--- Remover menús viejos
+-- Remove legacy menus
 if player:WaitForChild("PlayerGui"):FindFirstChild("LurkerControlGui") then
 	player.PlayerGui.LurkerControlGui:Destroy()
 end
 
 -- =========================================================================
--- INTERFAZ GRÁFICA AVANZADA (ESTILO EXAMINATION INDUSTRIAL)
+-- ADVANCED GRAPHICAL INTERFACE (EXAMINATION INDUSTRIAL STYLE)
 -- =========================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
@@ -41,7 +42,7 @@ local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
--- Borde sutil estilo industrial
+-- Subtle industrial border style
 local uiStroke = Instance.new("UIStroke")
 uiStroke.Color = Color3.fromRGB(45, 45, 45)
 uiStroke.Thickness = 1
@@ -58,9 +59,7 @@ titleLabel.Font = Enum.Font.Code
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = mainFrame
 
--- =========================================================================
--- CONTENEDOR SEGURO DE ELEMENTOS (NUEVO: EVITA QUE LAS OPCIONES DESAPAREZCAN)
--- =========================================================================
+-- SAFE CONTENT HOLDER (Prevents elements from breaking upon maximizing)
 local contentFrame = Instance.new("Frame")
 contentFrame.Name = "ContentFrame"
 contentFrame.Size = UDim2.new(1, 0, 1, -35)
@@ -70,9 +69,9 @@ contentFrame.Parent = mainFrame
 
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 190, 0, 35)
-toggleButton.Position = UDim2.new(0, 20, 0, 5) -- Ajustado al contenedor
+toggleButton.Position = UDim2.new(0, 20, 0, 5)
 toggleButton.BackgroundColor3 = Color3.fromRGB(35, 25, 25)
-toggleButton.Text = "SISTEMA: APAGADO"
+toggleButton.Text = "SYSTEM: DISABLED"
 toggleButton.TextColor3 = Color3.fromRGB(200, 100, 100)
 toggleButton.TextSize = 13
 toggleButton.Font = Enum.Font.SourceSansBold
@@ -87,12 +86,12 @@ buttonStroke.Color = Color3.fromRGB(100, 40, 40)
 buttonStroke.Thickness = 1
 buttonStroke.Parent = toggleButton
 
--- MONITOR DE ESTADO EN TIEMPO REAL
+-- REAL-TIME MONITORING STATUS LABEL
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(0, 190, 0, 25)
-statusLabel.Position = UDim2.new(0, 20, 0, 45) -- Ajustado al contenedor
+statusLabel.Position = UDim2.new(0, 20, 0, 45)
 statusLabel.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
-statusLabel.Text = "Estado: Inactivo"
+statusLabel.Text = "Status: Idle"
 statusLabel.TextColor3 = Color3.fromRGB(130, 130, 130)
 statusLabel.TextSize = 12
 statusLabel.Font = Enum.Font.SourceSansItalic
@@ -102,12 +101,12 @@ local statusCorner = Instance.new("UICorner")
 statusCorner.CornerRadius = UDim.new(0, 4)
 statusCorner.Parent = statusLabel
 
--- CONTROL DE PASOS
+-- FOOTSTEP SPEED CONTROLLER
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(1, 0, 0, 25)
-speedLabel.Position = UDim2.new(0, 0, 0, 80) -- Ajustado al contenedor
+speedLabel.Position = UDim2.new(0, 0, 0, 80)
 speedLabel.BackgroundTransparency = 1
-speedLabel.Text = "Frecuencia de Pasos: " .. string.format("%.1f", getgenv().GilbertFootSpeed)
+speedLabel.Text = "Footstep Frequency: " .. string.format("%.1f", getgenv().GilbertFootSpeed)
 speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 speedLabel.TextSize = 13
 speedLabel.Font = Enum.Font.SourceSans
@@ -115,7 +114,7 @@ speedLabel.Parent = contentFrame
 
 local minusButton = Instance.new("TextButton")
 minusButton.Size = UDim2.new(0, 45, 0, 30)
-minusButton.Position = UDim2.new(0, 45, 0, 110) -- Ajustado al contenedor
+minusButton.Position = UDim2.new(0, 45, 0, 110)
 minusButton.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
 minusButton.Text = "-"
 minusButton.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -129,7 +128,7 @@ minusCorner.Parent = minusButton
 
 local plusButton = Instance.new("TextButton")
 plusButton.Size = UDim2.new(0, 45, 0, 30)
-plusButton.Position = UDim2.new(0, 140, 0, 110) -- Ajustado al contenedor
+plusButton.Position = UDim2.new(0, 140, 0, 110)
 plusButton.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
 plusButton.Text = "+"
 plusButton.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -141,7 +140,7 @@ local plusCorner = Instance.new("UICorner")
 plusCorner.CornerRadius = UDim.new(0, 4)
 plusCorner.Parent = plusButton
 
--- BOTÓN MINIMIZAR BLINDADO
+-- SECURE MINIMIZE BUTTON
 local minimizeButton = Instance.new("TextButton")
 minimizeButton.Size = UDim2.new(0, 25, 0, 25)
 minimizeButton.Position = UDim2.new(1, -30, 0, 5)
@@ -158,15 +157,15 @@ minimizeButton.MouseButton1Click:Connect(function()
 	if isMinimized then
 		mainFrame.Size = UDim2.new(0, 230, 0, 35)
 		minimizeButton.Text = "+"
-		contentFrame.Visible = false -- Oculta todo el bloque limpio de un solo golpe
+		contentFrame.Visible = false
 	else
 		mainFrame.Size = UDim2.new(0, 230, 0, 210)
 		minimizeButton.Text = "-"
-		contentFrame.Visible = true -- Muestra todo conservando sus posiciones intactas
+		contentFrame.Visible = true
 	end
 end)
 
--- Efectos Hover sencillos y funciones de botones
+-- Hover effects and button features
 minusButton.MouseEnter:Connect(function() minusButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end)
 minusButton.MouseLeave:Connect(function() minusButton.BackgroundColor3 = Color3.fromRGB(28, 28, 28) end)
 plusButton.MouseEnter:Connect(function() plusButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end)
@@ -175,43 +174,24 @@ plusButton.MouseLeave:Connect(function() plusButton.BackgroundColor3 = Color3.fr
 minusButton.MouseButton1Click:Connect(function()
 	if getgenv().GilbertFootSpeed > 0.5 then
 		getgenv().GilbertFootSpeed = math.max(0.5, getgenv().GilbertFootSpeed - 0.1)
-		speedLabel.Text = "Frecuencia de Pasos: " .. string.format("%.1f", getgenv().GilbertFootSpeed)
+		speedLabel.Text = "Footstep Frequency: " .. string.format("%.1f", getgenv().GilbertFootSpeed)
 	end
 end)
 
 plusButton.MouseButton1Click:Connect(function()
 	if getgenv().GilbertFootSpeed < 5.0 then
 		getgenv().GilbertFootSpeed = math.min(5.0, getgenv().GilbertFootSpeed + 0.1)
-		speedLabel.Text = "Frecuencia de Pasos: " .. string.format("%.1f", getgenv().GilbertFootSpeed)
+		speedLabel.Text = "Footstep Frequency: " .. string.format("%.1f", getgenv().GilbertFootSpeed)
 	end
 end)
 
-toggleButton.MouseButton1Click:Connect(function()
-	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
-	
-	if getgenv().LurkerAI_Enabled then
-		toggleButton.Text = "SISTEMA: ACTIVO"
-		toggleButton.BackgroundColor3 = Color3.fromRGB(25, 40, 25)
-		toggleButton.TextColor3 = Color3.fromRGB(100, 220, 100)
-		buttonStroke.Color = Color3.fromRGB(40, 120, 40)
-		statusLabel.Text = "Iniciando motor de acecho..."
-	else
-		toggleButton.Text = "SISTEMA: APAGADO"
-		toggleButton.BackgroundColor3 = Color3.fromRGB(35, 25, 25)
-		toggleButton.TextColor3 = Color3.fromRGB(200, 100, 100)
-		buttonStroke.Color = Color3.fromRGB(100, 40, 40)
-		statusLabel.Text = "Estado: Inactivo"
-		statusLabel.TextColor3 = Color3.fromRGB(130, 130, 130)
-	end
-end)
-
--- Variables del motor de movimiento stable
+-- Variables of the stable movement engine
 local targetPosition = rootPart.Position
 local isResting = false
 local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
 
--- Variables del sistema de comandos de voz Z
+-- Voice Command system parameters
 local leaderCharacter = nil      
 local lastLeaderMoveTime = 0     
 local leaderLastPos = Vector3.new()
@@ -219,7 +199,49 @@ local voiceCommandRange = 45
 
 local lastVisitedPosition = rootPart.Position
 
--- Oyente del Chat
+-- Corridor Raycast Pathfinding Scanner Forward Declaration
+local calculateSmartLurkerPath
+
+toggleButton.MouseButton1Click:Connect(function()
+	getgenv().LurkerAI_Enabled = not getgenv().LurkerAI_Enabled
+	
+	if getgenv().LurkerAI_Enabled then
+		toggleButton.Text = "SYSTEM: ACTIVE"
+		toggleButton.BackgroundColor3 = Color3.fromRGB(25, 40, 25)
+		toggleButton.TextColor3 = Color3.fromRGB(100, 220, 100)
+		buttonStroke.Color = Color3.fromRGB(40, 120, 40)
+		statusLabel.Text = "Initializing prowling engine..."
+		
+		-- FIX: Clear obsolete coordinates and force an immediate new route generation from current position
+		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
+		targetPosition = rootPart.Position
+		lastVisitedPosition = rootPart.Position
+		currentVisualHeading = rootPart.CFrame.LookVector
+		isResting = false
+		leaderCharacter = nil
+		
+		task.spawn(function()
+			task.wait(0.1)
+			if getgenv().LurkerAI_Enabled then
+				targetPosition = calculateSmartLurkerPath()
+			end
+		end)
+	else
+		toggleButton.Text = "SYSTEM: DISABLED"
+		toggleButton.BackgroundColor3 = Color3.fromRGB(35, 25, 25)
+		toggleButton.TextColor3 = Color3.fromRGB(200, 100, 100)
+		buttonStroke.Color = Color3.fromRGB(100, 40, 40)
+		statusLabel.Text = "Status: Idle"
+		statusLabel.TextColor3 = Color3.fromRGB(130, 130, 130)
+		
+		-- FIX: Erase velocity vectors to stop movement instantly
+		leaderCharacter = nil
+		isResting = false
+		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
+	end
+end)
+
+-- Voice Command Listener (Chat Setup)
 local function setupVoiceCommandListener(otherPlayer)
 	otherPlayer.Chatted:Connect(function(message)
 		if not getgenv().LurkerAI_Enabled or otherPlayer == player then return end 
@@ -241,11 +263,10 @@ end
 for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
 Players.PlayerAdded:Connect(setupVoiceCommandListener)
 
--- ESCÁNER DE PASILLOS
-local rayParams = RaycastParams.new()
-rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local function calculateSmartLurkerPath()
+-- SMART CORRIDOR SCANNER
+calculateSmartLurkerPath = function()
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = {character}
 	local origin = rootPart.Position + Vector3.new(0, 0.5, 0)
 	
@@ -289,7 +310,7 @@ local function calculateSmartLurkerPath()
 	return selectedPoint
 end
 
--- MOTOR DE MOVIMIENTO CON DEBUG VISUAL
+-- HEARTBEAT PHYSICS MOVEMENT ENGINE
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
@@ -297,12 +318,12 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	local moveDirection = Vector3.new()
 	local destinationPos = nil
 	
-	-- ESCORTANDO A JUGADOR
+	-- PLAYER ESCORTING STATE (FOLLOW ME ORDER)
 	if leaderCharacter and leaderCharacter:FindFirstChild("HumanoidRootPart") and leaderCharacter:FindFirstChild("Humanoid") and leaderCharacter.Humanoid.Health > 0 then
 		local leaderRoot = leaderCharacter.HumanoidRootPart
 		local distanceToLeader = (rootPart.Position - leaderRoot.Position).Magnitude
 		
-		statusLabel.Text = "Siguiendo a Líder (" .. string.format("%d", distanceToLeader) .. "m)"
+		statusLabel.Text = "Escorting Leader (" .. string.format("%d", distanceToLeader) .. "m)"
 		statusLabel.TextColor3 = Color3.fromRGB(100, 180, 255)
 
 		if (leaderRoot.Position - leaderLastPos).Magnitude > 1.5 then
@@ -334,17 +355,16 @@ RunService.Heartbeat:Connect(function(deltaTime)
 					track:AdjustSpeed(1)
 				end
 			end
-			statusLabel.Text = "Esperando órdenes del Líder"
+			statusLabel.Text = "Awaiting Leader Commands"
 			return
 		end
 		
-	-- PATRULLA DE ACECHO ESTÁNDAR
+	-- STANDARD LURKER PROWLING STATE
 	else
 		if isResting then
 			restTimer = restTimer - deltaTime
 			
-			-- Mostrar la cuenta regresiva en el menú en vivo
-			statusLabel.Text = "Esperando... " .. string.format("%.1f", restTimer) .. "s"
+			statusLabel.Text = "Prowling Pause: " .. string.format("%.1f", restTimer) .. "s"
 			statusLabel.TextColor3 = Color3.fromRGB(240, 200, 80)
 
 			if restTimer <= 0 then
@@ -369,7 +389,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			destinationPos = targetPosition
 			moveDirection = (flatTargetPos - flatCharacterPos).Unit
 			
-			statusLabel.Text = "Patrullando Pasillos..."
+			statusLabel.Text = "Sweeping Corridors..."
 			statusLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
 		else
 			isResting = true
@@ -379,7 +399,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		end
 	end
 	
-	-- Traslación física final
+	-- Final physical vector translation
 	if destinationPos and moveDirection.Magnitude > 0 then
 		local nextPosition = rootPart.Position + moveDirection * (currentSpeed * deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
