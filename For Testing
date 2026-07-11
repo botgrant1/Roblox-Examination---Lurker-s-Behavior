@@ -1,11 +1,12 @@
 --[[
-    LURKER AUTOPILOT - EXPERIMENTAL COMBAT ENGINE TEST (WITH LINE OF SIGHT)
-    All interface in English. Real-time periodic entity targeting system with LoS.
+    LURKER AUTOPILOT - EXPERIMENTAL MELEE COMBAT TEST (HIT & RUN)
+    All interface in English. Uses OverlapParams for lag-free performance.
 --]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager") -- Simulador de teclado nativo
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -51,7 +52,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "GILBERT COMBAT TEST"
+titleLabel.Text = "GILBERT MELEE TEST"
 titleLabel.TextColor3 = Color3.fromRGB(220, 60, 60)
 titleLabel.TextSize = 13
 titleLabel.Font = Enum.Font.Code
@@ -175,7 +176,7 @@ plusButton.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- GLOBAL SYSTEM MOTOR VARIABLES
+-- GLOBAL ENGINE CORE VARIABLES
 -- =========================================================================
 local targetPosition = rootPart.Position
 local isResting = false
@@ -183,70 +184,64 @@ local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
 local lastVisitedPosition = rootPart.Position
 
--- Intelligence Combat Parameters
+-- Advanced Melee Combat Parameters
 local currentEnemyTarget = nil
-local combatRange = 60 -- Maximum entity detection radius (studs)
-local lastShootTime = 0
-local shootCooldown = 0.5 -- Cooldown firing rate (seconds)
+local combatScanRange = 35 -- Area scan size (studs)
+local attackTriggerRange = 9 -- Distance required to press 'G'
+local lastMeleeStrikeTime = 0
+local meleeCooldown = 0.8 
+local isExecutingHitAndRun = false
 
 local calculateSmartLurkerPath
 
 -- =========================================================================
--- AUTOMATIC COMBAT ENGINE (WITH LINE OF SIGHT FILTERS)
+-- ULTRA-LIGHTWEIGHT SCANNER ENGINE (LAG FREE VIA OVERLAPPARTS)
 -- =========================================================================
-local function drawLaserBeam(from, to)
-	local distance = (from - to).Magnitude
-	local laser = Instance.new("Part")
-	laser.Name = "GilbertLaserEffect"
-	laser.Anchored = true
-	laser.CanCollide = false
-	laser.Color = Color3.fromRGB(255, 0, 0) -- Bright Red debug laser
-	laser.Material = Enum.Material.Neon
-	laser.Size = Vector3.new(0.15, 0.15, distance)
-	laser.CFrame = CFrame.lookAt(from, to) * CFrame.new(0, 0, -distance / 2)
-	laser.Parent = Workspace
-	game:GetService("Debris"):AddItem(laser, 0.08) -- Instantly removed from cache
-end
-
--- Optimized Loop: Runs 3 times per second to check Line of Sight without lag
 task.spawn(function()
 	while true do
-		task.wait(0.33)
-		if getgenv().LurkerAI_Enabled and character and character:FindFirstChild("HumanoidRootPart") then
+		task.wait(0.2) -- Faster checking (5 times per second) with ZERO lag
+		if getgenv().LurkerAI_Enabled and character and character:FindFirstChild("HumanoidRootPart") and not isExecutingHitAndRun then
 			local closestEnemy = nil
-			local shortestDistance = combatRange
-			local originPoint = rootPart.Position + Vector3.new(0, 0.5, 0) -- Bot's field of view origin
+			local shortestDistance = combatScanRange
+			local originPoint = rootPart.Position + Vector3.new(0, 0.5, 0)
 			
-			-- Setup physical visibility parameters
+			-- Setup Overlap Parameters (Scans only a tiny box around the player, not the whole map)
+			local boxParams = OverlapParams.new()
+			boxParams.FilterType = Enum.RaycastFilterType.Exclude
+			boxParams.FilterDescendantsInstances = {character}
+			
+			local nearbyParts = Workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(combatScanRange, 15, combatScanRange), boxParams)
+			local analyzedModels = {} -- Cache to avoid checking the same entity twice
+			
+			-- Line of sight setup
 			local losParams = RaycastParams.new()
 			losParams.FilterType = Enum.RaycastFilterType.Exclude
-			
-			-- Exclude bot and other online players from blocking the sight raycast
 			local ignoreList = {character}
 			for _, p in ipairs(Players:GetPlayers()) do
 				if p.Character then table.insert(ignoreList, p.Character) end
 			end
 			losParams.FilterDescendantsInstances = ignoreList
-			
-			-- Search for valid targets across Workspace
-			for _, desc in ipairs(Workspace:GetDescendants()) do
-				if desc:IsA("Humanoid") and desc.Parent and desc.Parent ~= character then
-					local enemyRoot = desc.Parent:FindFirstChild("HumanoidRootPart") or desc.Parent:FindFirstChild("Torso")
-					if enemyRoot and desc.Health > 0 then
-						
-						-- Rule 1: Must NOT be a real player
-						local isAPlayer = Players:GetPlayerFromCharacter(desc.Parent)
+
+			for _, part in ipairs(nearbyParts) do
+				local model = part.Parent
+				if model and model:IsA("Model") and not analyzedModels[model] and model ~= character then
+					analyzedModels[model] = true
+					
+					local enemyHumanoid = model:FindFirstChildOfClass("Humanoid")
+					local enemyRoot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
+					
+					if enemyHumanoid and enemyRoot and enemyHumanoid.Health > 0 then
+						local isAPlayer = Players:GetPlayerFromCharacter(model)
 						if not isAPlayer then
 							local targetPos = enemyRoot.Position
 							local dist = (rootPart.Position - targetPos).Magnitude
 							
-							-- Rule 2: If within distance, execute the Line of Sight check
 							if dist < shortestDistance then
+								-- Line of Sight Wall Filter
 								local direction = (targetPos - originPoint)
 								local losRay = Workspace:Raycast(originPoint, direction, losParams)
 								
-								-- Target acquired only if ray is clean or directly intersects the target model
-								if not losRay or losRay.Instance:IsDescendantOf(desc.Parent) then
+								if not losRay or losRay.Instance:IsDescendantOf(model) then
 									shortestDistance = dist
 									closestEnemy = enemyRoot
 								end
@@ -256,7 +251,7 @@ task.spawn(function()
 				end
 			end
 			currentEnemyTarget = closestEnemy
-		else
+		elseif not getgenv().LurkerAI_Enabled then
 			currentEnemyTarget = nil
 		end
 	end
@@ -279,6 +274,7 @@ toggleButton.MouseButton1Click:Connect(function()
 		lastVisitedPosition = rootPart.Position
 		isResting = false
 		currentEnemyTarget = nil
+		isExecutingHitAndRun = false
 		
 		task.spawn(function()
 			task.wait(0.1)
@@ -293,6 +289,7 @@ toggleButton.MouseButton1Click:Connect(function()
 		statusLabel.TextColor3 = Color3.fromRGB(130, 130, 130)
 		isResting = false
 		currentEnemyTarget = nil
+		isExecutingHitAndRun = false
 		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
 	end
 end)
@@ -320,38 +317,72 @@ calculateSmartLurkerPath = function()
 end
 
 -- =========================================================================
--- MAIN HEARTBEAT EXECUTION LOOP
+-- MAIN HEARTBEAT EXECUTION LOOP & COMBAT LOGIC
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
-	-- PRIORITY 1: COMBAT MODE ACTIVATED (TARGET VISIBLE AND LOCKED)
-	if currentEnemyTarget and currentEnemyTarget.Parent and currentEnemyTarget.Parent:FindFirstChild("Humanoid") and currentEnemyTarget.Parent.Humanoid.Health > 0 then
-		-- Lock physics velocity instantly to prevent sliding while firing
-		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
-		
+	-- PRIORITY 1: CLOSE COMBAT MODE (ENGAGE WITH 'G')
+	if currentEnemyTarget and currentEnemyTarget.Parent and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid") and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid").Health > 0 and not isExecutingHitAndRun then
 		local enemyPos = currentEnemyTarget.Position
-		statusLabel.Text = "TARGET ENGAGED: " .. string.upper(currentEnemyTarget.Parent.Name)
-		statusLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+		local distanceToEnemy = (rootPart.Position - enemyPos).Magnitude
 		
-		-- Smoothly look at the target in real time
+		statusLabel.Text = "APPROACHING TARGET: " .. string.upper(currentEnemyTarget.Parent.Name)
+		statusLabel.TextColor3 = Color3.fromRGB(255, 140, 60)
+		
+		-- Look at target in real-time
 		local lookTarget = Vector3.new(enemyPos.X, rootPart.Position.Y, enemyPos.Z)
 		rootPart.CFrame = rootPart.CFrame:Lerp(CFrame.lookAt(rootPart.Position, lookTarget), 15 * deltaTime)
 		
-		-- Process shooting frequency
-		if os.clock() - lastShootTime >= shootCooldown then
-			lastShootTime = os.clock()
-			
-			local originPoint = rootPart.Position + Vector3.new(0, 0.5, 0)
-			drawLaserBeam(originPoint, enemyPos)
-			
-			-- REAL DAMAGE IMPLEMENTATION NOTE:
-			-- You could invoke a RemoteEvent here to deal actual game damage if needed.
+		if distanceToEnemy > (attackTriggerRange - 2) then
+			-- Walk towards the enemy to close the distance
+			local moveDir = (Vector3.new(enemyPos.X, 0, enemyPos.Z) - Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)).Unit
+			pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDir * 9.5 end) -- Slightly faster speed to catch entities
+		else
+			-- WE ARE IN MELEE RANGE -> STRIKE!
+			if os.clock() - lastMeleeStrikeTime >= meleeCooldown then
+				lastMeleeStrikeTime = os.clock()
+				isExecutingHitAndRun = true
+				
+				statusLabel.Text = "EXECUTE MELEE STRIKE [G]"
+				statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+				pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
+				
+				-- Virtual Hardware Input Simulation (Press G key natively)
+				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+				task.wait(0.05)
+				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+				
+				-- HIT & RUN ESCAPE MANEUVER
+				task.spawn(function()
+					statusLabel.Text = "RETREATING FROM THREAT!"
+					statusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+					
+					-- Generate emergency retreat vector in opposite direction
+					local retreatDirection = (Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z) - Vector3.new(enemyPos.X, 0, enemyPos.Z)).Unit
+					targetPosition = rootPart.Position + (retreatDirection * 22) -- Run 22 studs backwards
+					
+					currentEnemyTarget = nil
+					task.wait(0.65) -- Duration of the fast retreat sprint
+					isExecutingHitAndRun = false
+				end)
+			end
 		end
-		return -- Interrupts normal path patrol loop while targets are handled
+		return
 	end
 	
 	-- PRIORITY 2: STANDARD CORRIDOR PROWLING PATROL
+	if isExecutingHitAndRun then 
+		-- High speed retreat physics implementation
+		local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+		local flatTarget = Vector3.new(targetPosition.X, 0, targetPosition.Z)
+		local moveDirection = (flatTarget - flatChar).Unit
+		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDirection * 14 end) -- Retreat sprint speed
+		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
+		rootPart.CFrame = CFrame.lookAt(rootPart.Position + moveDirection * (14 * deltaTime), rootPart.Position + currentVisualHeading)
+		return 
+	end
+
 	local currentSpeed = 7.2
 	local moveDirection = Vector3.new()
 	local isCurrentlyMoving = false
@@ -383,7 +414,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 	
-	-- Physical translation logic execution
+	-- Normal movement execution
 	if isCurrentlyMoving and moveDirection.Magnitude > 0 then
 		local nextPosition = rootPart.Position + moveDirection * (currentSpeed * deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
