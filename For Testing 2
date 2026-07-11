@@ -28,7 +28,9 @@ local lastMeleeStrikeTime = 0
 local meleeCooldown = 2.4 
 local internalManualHandover = false 
 
--- Detección de movimiento manual del jugador
+-- Control de estado para recalculación post-override
+local overrideActive = false
+
 local function isPlayerMovingInput()
 	local moveDirection = humanoid.MoveDirection
 	return moveDirection.Magnitude > 0.1
@@ -94,7 +96,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "REACTIVE INTEGRATION V5.1"
+titleLabel.Text = "REACTIVE INTEGRATION V5.2"
 titleLabel.TextColor3 = Color3.fromRGB(255, 65, 65)
 titleLabel.TextSize = 12
 titleLabel.Font = Enum.Font.Code
@@ -209,7 +211,7 @@ local logLabel = Instance.new("TextLabel")
 logLabel.Size = UDim2.new(1, -12, 1, -10)
 logLabel.Position = UDim2.new(0, 6, 0, 5)
 logLabel.BackgroundTransparency = 1
-logLabel.Text = "[+] CHANGELOG V5.1:\n• Handover: Auto-disables system on melee strike.\n• Pushback: Forced 0.22s micro-retreat after [G].\n• Fixed Sliding: Added automatic state synchronization.\n• Override: AI pauses when player inputs manual movement."
+logLabel.Text = "[+] CHANGELOG V5.2:\n• Handover: Auto-disables system on melee strike.\n• Pushback: Forced 0.22s micro-retreat after [G].\n• Fixed Sliding: Added automatic state synchronization.\n• Dynamic Recalculation: Forces a clean path recalculation immediately after User Override breaks."
 logLabel.TextColor3 = Color3.fromRGB(165, 150, 150)
 logLabel.TextSize = 11
 logLabel.Font = Enum.Font.Code
@@ -264,6 +266,7 @@ local function disableSystemFully()
 	buttonStroke.Color = Color3.fromRGB(100, 40, 40)
 	isResting = false
 	currentEnemyTarget = nil
+	overrideActive = false
 	pcall(function() 
 		humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() 
 	end)
@@ -346,6 +349,7 @@ toggleButton.MouseButton1Click:Connect(function()
 	else
 		getgenv().LurkerAI_Enabled = true
 		internalManualHandover = false
+		overrideActive = false
 		toggleButton.Text = "SYSTEM: ACTIVE"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(25, 40, 25)
 		toggleButton.TextColor3 = Color3.fromRGB(100, 220, 100)
@@ -369,11 +373,22 @@ end)
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 or internalManualHandover then return end
 	
-	-- COMPORTAMIENTO INTECOGNITO: Prioridad de movimiento del jugador real (Interrupción de patrulla)
+	-- COMPORTAMIENTO INTERRUPTOR: Prioridad absoluta de movimiento manual (Override)
 	if isPlayerMovingInput() and not currentEnemyTarget then
+		overrideActive = true -- Alerta que modificaste la posición del mapa a mano
 		statusLabel.Text = "User Override: Moving..."
 		statusLabel.TextColor3 = Color3.fromRGB(140, 170, 230)
-		return -- Congela los cálculos del bot para que puedas caminar con físicas y animaciones limpias
+		return 
+	end
+
+	-- CORRECCIÓN DINÁMICA POST-OVERRIDE: Si soltaste el teclado, borra el destino viejo y calcula uno limpio
+	if overrideActive and not isPlayerMovingInput() then
+		overrideActive = false
+		isResting = false
+		targetPosition = calculateSmartLurkerPath() -- Nueva ruta limpia en base a dónde te frenaste
+		statusLabel.Text = "Recalculating post-override..."
+		statusLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+		return
 	end
 
 	-- PRIORIDAD 1: ATAQUE Y CESIÓN INMEDIATA DEL CONTROL
@@ -391,7 +406,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			local moveDir = (Vector3.new(enemyPos.X, 0, enemyPos.Z) - Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)).Unit
 			pcall(function() 
 				humanoid.RootPart.AssemblyLinearVelocity = moveDir * 9.8 
-				humanoid:ChangeState(Enum.HumanoidStateType.Running) -- Sincroniza estado de animación
+				humanoid:ChangeState(Enum.HumanoidStateType.Running)
 			end)
 		else
 			if os.clock() - lastMeleeStrikeTime >= meleeCooldown then
@@ -467,7 +482,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		
 		pcall(function() 
 			rootPart.AssemblyLinearVelocity = moveDirection * currentSpeed 
-			humanoid:ChangeState(Enum.HumanoidStateType.Running) -- Forzado de animación reactiva
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
 		end)
 		
 		local animator = humanoid:FindFirstChildOfClass("Animator")
