@@ -1,6 +1,5 @@
 --[[
     LURKER AUTOPILOT - REGRESO ESTABLE TOTAL (PARTE 1)
-    Pega esto al inicio de tu archivo lurker.lua en GitHub.
 --]]
 
 local Players = game:GetService("Players")
@@ -21,7 +20,7 @@ if player:WaitForChild("PlayerGui"):FindFirstChild("LurkerControlGui") then
 end
 
 -- =========================================================================
--- INTERFAZ GRÁFICA (MENÚ DE CONTROL ESTABLE)
+-- GRAPHIC INTERFACE
 -- =========================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
@@ -54,7 +53,7 @@ local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 180, 0, 45)
 toggleButton.Position = UDim2.new(0, 20, 0, 55)
 toggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-toggleButton.Text = "ESTADO: DESACTIVADO"
+toggleButton.Text = "STATE: DEACTIVATED"
 toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.TextSize = 14
 toggleButton.Font = Enum.Font.SourceSans
@@ -122,7 +121,7 @@ for _, p in ipairs(Players:GetPlayers()) do setupVoiceCommandListener(p) end
 Players.PlayerAdded:Connect(setupVoiceCommandListener)
 
 -- =========================================================================
--- ESCÁNER INTELIGENTE DE PASILLOS (SECTOR-1 SIN CONFUSION)
+-- HALL INTELLIGENT SCANNER (Sector-1)
 -- =========================================================================
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -172,7 +171,7 @@ local function calculateSmartLurkerPath()
 end
 
 -- =========================================================================
--- MOTOR DE MOVIMIENTO GENERAL (CON VELOCIDAD DE PASOS ESTILO GILBERT)
+-- MOVEMENT ENGINE (MAIN)
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
@@ -264,13 +263,13 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		end)
 		
 		-- =========================================================================
-		-- MULTIPLICADOR ESTILO GILBERT (PASOS ULTRA RÁPIDOS)
+		-- Legs Movement Speed Testing (Referencing At Gilbert)
 		-- =========================================================================
 		local animator = humanoid:FindFirstChildOfClass("Animator")
 		if animator then
 			for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
 				if track.Name == "WalkAnim" or track.Name == "RunAnim" or string.find(string.lower(track.Name), "walk") or string.find(string.lower(track.Name), "run") then
-					track:AdjustSpeed(2.5) -- Modifica este 2.5 si quieres que los pies vayan aún más rápido
+					track:AdjustSpeed(1.5) -- Legs Movement Speed
 				end
 			end
 		end
