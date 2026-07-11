@@ -1,12 +1,12 @@
 --[[
-    LURKER AUTOPILOT - ADVANCED HIT & RUN ENGINE (WITH SHIFT SPRINT ESCAPE)
-    All interface in English. Zero lag overlap scanner with simulated shift mechanics.
+    LURKER AUTOPILOT - LABYRINTH ESCAPE ENGINE (ANTI-STUCK & POSITION MEMORY)
+    Designed for tight corridors and complex layout routing.
 --]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local VirtualInputManager = game:GetService("VirtualInputManager") -- NATIVE KEYBOARD EMULATOR
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -17,13 +17,12 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 getgenv().LurkerAI_Enabled = false
 getgenv().GilbertFootSpeed = 1.7 
 
--- Remove legacy menus
 if player:WaitForChild("PlayerGui"):FindFirstChild("LurkerControlGui") then
 	player.PlayerGui.LurkerControlGui:Destroy()
 end
 
 -- =========================================================================
--- INTERFACE SETUP (ENGLISH)
+-- INTERFACE SETUP
 -- =========================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
@@ -33,7 +32,7 @@ screenGui.Parent = player:WaitForChild("PlayerGui")
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 230, 0, 210)
 mainFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Draggable = true
@@ -44,7 +43,7 @@ uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
 local uiStroke = Instance.new("UIStroke")
-uiStroke.Color = Color3.fromRGB(45, 45, 45)
+uiStroke.Color = Color3.fromRGB(55, 45, 45)
 uiStroke.Thickness = 1
 uiStroke.Parent = mainFrame
 
@@ -52,8 +51,8 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "GILBERT SPRINT TEST"
-titleLabel.TextColor3 = Color3.fromRGB(220, 60, 60)
+titleLabel.Text = "LABYRINTH EVASION V3"
+titleLabel.TextColor3 = Color3.fromRGB(235, 75, 75)
 titleLabel.TextSize = 13
 titleLabel.Font = Enum.Font.Code
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -176,31 +175,58 @@ plusButton.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- GLOBAL ENGINE CORE VARIABLES
+-- ADVANCED MEMORY LOGIC VARIABLES
 -- =========================================================================
 local targetPosition = rootPart.Position
 local isResting = false
 local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
-local lastVisitedPosition = rootPart.Position
 
--- Tactical Combat Parameters
+-- Labyrinth breadcrumbs & blacklists
+local positionHistory = {} -- Dynamic crumb safe zone list
+local dangerousZones = {} -- Areas to ignore after a hit
+
 local currentEnemyTarget = nil
-local combatScanRange = 35 
+local combatScanRange = 30 
 local attackTriggerRange = 9 
 local lastMeleeStrikeTime = 0
-local meleeCooldown = 1.2 -- Adjusted cooldown to allow full sprint resets
+local meleeCooldown = 2.0 -- Higher cooldown to ensure escape finalize
 local isExecutingHitAndRun = false
 
 local calculateSmartLurkerPath
-local calculateEmergencyEscapePath
+
+-- Track walking trail safely every 0.4s
+task.spawn(function()
+	while true do
+		task.wait(0.4)
+		if getgenv().LurkerAI_Enabled and character and rootPart and not isExecutingHitAndRun then
+			table.insert(positionHistory, 1, rootPart.Position)
+			if #positionHistory > 25 then
+				table.remove(positionHistory, 26) -- Limit cache sizes
+			end
+		end
+	end
+end)
+
+-- Clean old dangerous zones dynamically
+task.spawn(function()
+	while true do
+		task.wait(1)
+		local now = os.clock()
+		for pos, timestamp in pairs(dangerousZones) do
+			if now - timestamp > 7.5 then -- Threat blacklisted for 7.5 seconds
+				dangerousZones[pos] = nil
+			end
+		end
+	end
+end)
 
 -- =========================================================================
--- ULTRA-LIGHTWEIGHT SCANNER ENGINE (LAG FREE VIA OVERLAPPARTS)
+-- RAYCAST + OVERLAP DETECTOR ENGINE
 -- =========================================================================
 task.spawn(function()
 	while true do
-		task.wait(0.2) 
+		task.wait(0.2)
 		if getgenv().LurkerAI_Enabled and character and character:FindFirstChild("HumanoidRootPart") and not isExecutingHitAndRun then
 			local closestEnemy = nil
 			local shortestDistance = combatScanRange
@@ -210,8 +236,8 @@ task.spawn(function()
 			boxParams.FilterType = Enum.RaycastFilterType.Exclude
 			boxParams.FilterDescendantsInstances = {character}
 			
-			local nearbyParts = Workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(combatScanRange, 15, combatScanRange), boxParams)
-			local analyzedModels = {} 
+			local nearbyParts = Workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(combatScanRange, 12, combatScanRange), boxParams)
+			local analyzedModels = {}
 			
 			local losParams = RaycastParams.new()
 			losParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -265,11 +291,12 @@ toggleButton.MouseButton1Click:Connect(function()
 		toggleButton.BackgroundColor3 = Color3.fromRGB(25, 40, 25)
 		toggleButton.TextColor3 = Color3.fromRGB(100, 220, 100)
 		buttonStroke.Color = Color3.fromRGB(40, 120, 40)
-		statusLabel.Text = "Initializing prowling engine..."
+		statusLabel.Text = "Engaging path logic..."
 		
 		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
 		targetPosition = rootPart.Position
-		lastVisitedPosition = rootPart.Position
+		positionHistory = {rootPart.Position}
+		dangerousZones = {}
 		isResting = false
 		currentEnemyTarget = nil
 		isExecutingHitAndRun = false
@@ -296,7 +323,7 @@ toggleButton.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================================
--- PATHFINDING RAYCAST MOTORS (PATROL & EMERGENCY ESCAPE)
+-- PATROL ROUTING GENERATOR (WITH BLACKLIST FILTERING)
 -- =========================================================================
 calculateSmartLurkerPath = function()
 	local rayParams = RaycastParams.new()
@@ -308,67 +335,43 @@ calculateSmartLurkerPath = function()
 	for i = 1, 12 do
 		local angle = math.rad(i * 30)
 		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit
-		local ray = Workspace:Raycast(origin, direction * 50, rayParams)
-		local dist = ray and (ray.Position - rootPart.Position).Magnitude or 50
-		if dist > 15 then table.insert(validOptions, rootPart.Position + direction * (dist - 5)) end
-	end
-	
-	lastVisitedPosition = rootPart.Position
-	return #validOptions > 0 and validOptions[math.random(1, #validOptions)] or rootPart.Position
-end
-
-calculateEmergencyEscapePath = function(dangerPosition)
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {character}
-	
-	-- Base escape vector (Perfect opposite direction from danger source)
-	local rawEscapeDirection = (Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z) - Vector3.new(dangerPosition.X, 0, dangerPosition.Z)).Unit
-	local bestEscapePoint = rootPart.Position + (rawEscapeDirection * 45) -- Target far distance escape
-	
-	-- Scan alternatives in a 90-degree arc if direct opposite path hits a wall instantly
-	local validEscapeRoutes = {}
-	for offsetAngle = -45, 45, 15 do
-		local rad = math.rad(offsetAngle)
-		local rotatedDirection = Vector3.new(
-			rawEscapeDirection.X * math.cos(rad) - rawEscapeDirection.Z * math.sin(rad),
-			0,
-			rawEscapeDirection.X * math.sin(rad) + rawEscapeDirection.Z * math.cos(rad)
-		).Unit
+		local ray = Workspace:Raycast(origin, direction * 45, rayParams)
+		local dist = ray and (ray.Position - rootPart.Position).Magnitude or 45
 		
-		local origin = rootPart.Position + Vector3.new(0, 0.5, 0)
-		local wallCheck = Workspace:Raycast(origin, rotatedDirection * 45, rayParams)
-		local openDistance = wallCheck and (wallCheck.Position - rootPart.Position).Magnitude or 45
-		
-		if openDistance > 12 then
-			table.insert(validEscapeRoutes, {
-				point = rootPart.Position + rotatedDirection * (openDistance - 4),
-				dist = openDistance
-			})
+		if dist > 12 then
+			local potentialPoint = rootPart.Position + direction * (dist - 4)
+			
+			-- Verify against blacklisted dangerous encounter locations
+			local isSafe = true
+			for dangerPos, _ in pairs(dangerousZones) do
+				if (potentialPoint - dangerPos).Magnitude < 25 then
+					isSafe = false
+					break
+				end
+			end
+			
+			if isSafe then
+				table.insert(validOptions, potentialPoint)
+			end
 		end
 	end
 	
-	if #validEscapeRoutes > 0 then
-		table.sort(validEscapeRoutes, function(a, b) return a.dist > b.dist end) -- Pick the deepest path available
-		return validEscapeRoutes[1].point
-	end
-	
-	return bestEscapePoint
+	return #validOptions > 0 and validOptions[math.random(1, #validOptions)] or rootPart.Position
 end
 
 -- =========================================================================
--- MAIN HEARTBEAT EXECUTION LOOP & TACTICAL SPRINT LOGIC
+-- MAIN EXECUTION MOTOR
 -- =========================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
-	-- PRIORITY 1: CLOSE COMBAT MELEE ENGAGEMENT
+	-- PRIORITY 1: CLOSE COMBAT LOCK-ON
 	if currentEnemyTarget and currentEnemyTarget.Parent and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid") and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid").Health > 0 and not isExecutingHitAndRun then
 		local enemyPos = currentEnemyTarget.Position
 		local distanceToEnemy = (rootPart.Position - enemyPos).Magnitude
 		
-		statusLabel.Text = "CLOSING DISTANCE: " .. string.upper(currentEnemyTarget.Parent.Name)
-		statusLabel.TextColor3 = Color3.fromRGB(255, 140, 60)
+		statusLabel.Text = "STALKING: " .. string.upper(currentEnemyTarget.Parent.Name)
+		statusLabel.TextColor3 = Color3.fromRGB(255, 130, 50)
 		
 		local lookTarget = Vector3.new(enemyPos.X, rootPart.Position.Y, enemyPos.Z)
 		rootPart.CFrame = rootPart.CFrame:Lerp(CFrame.lookAt(rootPart.Position, lookTarget), 15 * deltaTime)
@@ -377,59 +380,79 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			local moveDir = (Vector3.new(enemyPos.X, 0, enemyPos.Z) - Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)).Unit
 			pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDir * 9.5 end)
 		else
-			-- EXECUTING MELEE HIT
+			-- G KEY STRIKE TIMEOUT
 			if os.clock() - lastMeleeStrikeTime >= meleeCooldown then
+				local strikeLocation = enemyPos
 				lastMeleeStrikeTime = os.clock()
 				isExecutingHitAndRun = true
 				
-				statusLabel.Text = "MELEE STRIKE REGISTERED! [G]"
+				statusLabel.Text = "MELEE ATTACK EXEC [G]"
 				statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
 				pcall(function() humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() end)
 				
-				-- Fire native Keyboard Signal G
 				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.G, false, game)
 				task.wait(0.05)
 				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.G, false, game)
 				
-				-- INITIALIZE EMERGENCY SPRINT ESCAPE ROUTINE
+				-- Blacklist strike area location instantly
+				dangerousZones[strikeLocation] = os.clock()
+				
+				-- CALCULATE BREADCRUMB RETREAT ROUTE
 				task.spawn(function()
 					currentEnemyTarget = nil
-					targetPosition = calculateEmergencyEscapePath(enemyPos)
 					
-					statusLabel.Text = "TACTICAL ESCAPE ACTIVE [SHIFT]"
-					statusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+					-- Find furthest crumb left in history cache
+					local safetyCrumb = positionHistory[#positionHistory] or (rootPart.Position - rootPart.CFrame.LookVector * 15)
+					targetPosition = safetyCrumb
 					
-					-- Press Left Shift to activate game sprint script mechanics
+					statusLabel.Text = "TACTICAL RETREAT [SHIFT]"
+					statusLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+					
+					-- Hold Shift key natively
 					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
 					
-					task.wait(1.4) -- Duration of the forced uninterruptible sprint away
+					-- Active high speed inverse routing trail
+					local escapeTimer = 1.6
+					while escapeTimer > 0 do
+						escapeTimer = escapeTimer - task.wait()
+						local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+						local flatTarget = Vector3.new(targetPosition.X, 0, targetPosition.Z)
+						
+						if (flatChar - flatTarget).Magnitude < 4 and #positionHistory > 1 then
+							-- Clean crumb and grab the next historic segment to follow corridor curve
+							table.remove(positionHistory, #positionHistory)
+							targetPosition = positionHistory[#positionHistory] or rootPart.Position
+						end
+					end
 					
-					-- Release Left Shift to go back to regular step speed
+					-- Release Shift key safely
 					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+					
 					isExecutingHitAndRun = false
 					isResting = false
-					targetPosition = calculateSmartLurkerPath() -- Recalculate normal patrol
+					positionHistory = {rootPart.Position} -- Flush cache
+					targetPosition = calculateSmartLurkerPath()
 				end)
 			end
 		end
 		return
 	end
 	
-	-- PRIORITY 2: EMERGENCY ESCAPE TRANS-LOCATION (TACTICAL SPRINT ACTIVE)
+	-- PRIORITY 2: SPRINTING OUT OF CORRIDOR DANGER
 	if isExecutingHitAndRun then 
 		local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
 		local flatTarget = Vector3.new(targetPosition.X, 0, targetPosition.Z)
 		local moveDirection = (flatTarget - flatChar).Unit
 		
-		local sprintVelocitySpeed = 16.0 -- Fast tactical sprint velocity value
-		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDirection * sprintVelocitySpeed end)
+		local sprintSpeed = 16.5
+		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDirection * sprintSpeed end)
 		
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 16 * deltaTime).Unit
-		rootPart.CFrame = CFrame.lookAt(rootPart.Position + moveDirection * (sprintVelocitySpeed * deltaTime), rootPart.Position + currentVisualHeading)
+		rootPart.CFrame = CFrame.lookAt(rootPart.Position + moveDirection * (sprintSpeed * deltaTime), rootPart.Position + currentVisualHeading)
 		return 
 	end
 
-	-- PRIORITY 3: STANDARD CORRIDOR PROWLING PATROL
+	-- PRIORITY 3: STANDARD PATROL THROUGH ROOMS
 	local currentSpeed = 7.2
 	local moveDirection = Vector3.new()
 	local isCurrentlyMoving = false
@@ -457,11 +480,10 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		statusLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
 	else
 		isResting = true
-		restTimer = math.random(15, 50) / 10
+		restTimer = math.random(15, 45) / 10
 		return
 	end
 	
-	-- Apply regular patrol physics
 	if isCurrentlyMoving and moveDirection.Magnitude > 0 then
 		local nextPosition = rootPart.Position + moveDirection * (currentSpeed * deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
