@@ -1,6 +1,6 @@
 --[[
-    LURKER AUTOPILOT - LABYRINTH ESCAPE ENGINE (ANTI-STUCK & POSITION MEMORY)
-    Designed for tight corridors and complex layout routing.
+    LURKER AUTOPILOT - FIXED LABYRINTH ESCAPE ENGINE (STUCK-PROOF V3.1)
+    All interface in English. Fixed thread-emptying crumb bug.
 --]]
 
 local Players = game:GetService("Players")
@@ -51,7 +51,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "LABYRINTH EVASION V3"
+titleLabel.Text = "LABYRINTH EVASION V3.1"
 titleLabel.TextColor3 = Color3.fromRGB(235, 75, 75)
 titleLabel.TextSize = 13
 titleLabel.Font = Enum.Font.Code
@@ -183,26 +183,26 @@ local restTimer = 0
 local currentVisualHeading = rootPart.CFrame.LookVector
 
 -- Labyrinth breadcrumbs & blacklists
-local positionHistory = {} -- Dynamic crumb safe zone list
-local dangerousZones = {} -- Areas to ignore after a hit
+local positionHistory = {} 
+local dangerousZones = {} 
 
 local currentEnemyTarget = nil
 local combatScanRange = 30 
 local attackTriggerRange = 9 
 local lastMeleeStrikeTime = 0
-local meleeCooldown = 2.0 -- Higher cooldown to ensure escape finalize
+local meleeCooldown = 2.2 
 local isExecutingHitAndRun = false
 
 local calculateSmartLurkerPath
 
--- Track walking trail safely every 0.4s
+-- Track walking trail safely every 0.35s
 task.spawn(function()
 	while true do
-		task.wait(0.4)
-		if getgenv().LurkerAI_Enabled and character and rootPart and not isExecutingHitAndRun then
+		task.wait(0.35)
+		if getgenv().LurkerAI_Enabled and character and character:FindFirstChild("HumanoidRootPart") and not isExecutingHitAndRun then
 			table.insert(positionHistory, 1, rootPart.Position)
-			if #positionHistory > 25 then
-				table.remove(positionHistory, 26) -- Limit cache sizes
+			if #positionHistory > 30 then
+				table.remove(positionHistory, 31)
 			end
 		end
 	end
@@ -214,7 +214,7 @@ task.spawn(function()
 		task.wait(1)
 		local now = os.clock()
 		for pos, timestamp in pairs(dangerousZones) do
-			if now - timestamp > 7.5 then -- Threat blacklisted for 7.5 seconds
+			if now - timestamp > 8.0 then 
 				dangerousZones[pos] = nil
 			end
 		end
@@ -341,10 +341,9 @@ calculateSmartLurkerPath = function()
 		if dist > 12 then
 			local potentialPoint = rootPart.Position + direction * (dist - 4)
 			
-			-- Verify against blacklisted dangerous encounter locations
 			local isSafe = true
 			for dangerPos, _ in pairs(dangerousZones) do
-				if (potentialPoint - dangerPos).Magnitude < 25 then
+				if (potentialPoint - dangerPos).Magnitude < 26 then
 					isSafe = false
 					break
 				end
@@ -394,43 +393,33 @@ RunService.Heartbeat:Connect(function(deltaTime)
 				task.wait(0.05)
 				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.G, false, game)
 				
-				-- Blacklist strike area location instantly
 				dangerousZones[strikeLocation] = os.clock()
 				
-				-- CALCULATE BREADCRUMB RETREAT ROUTE
+				-- FIXED CRUMB INTERPOLATION RETREAT
 				task.spawn(function()
 					currentEnemyTarget = nil
 					
-					-- Find furthest crumb left in history cache
-					local safetyCrumb = positionHistory[#positionHistory] or (rootPart.Position - rootPart.CFrame.LookVector * 15)
-					targetPosition = safetyCrumb
+					-- Extract a historical safe point far back in the table index (e.g. 12th step behind)
+					local safeIndex = math.min(#positionHistory, 12)
+					local escapeTargetPos = positionHistory[safeIndex] or (rootPart.Position - rootPart.CFrame.LookVector * 18)
+					
+					-- HARD LOCK TARGET TO THE KNOWN SAFE POINT
+					targetPosition = escapeTargetPos
 					
 					statusLabel.Text = "TACTICAL RETREAT [SHIFT]"
 					statusLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
 					
-					-- Hold Shift key natively
+					-- Active game shift mechanics natively
 					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+					pcall(function() rootPart.AssemblyLinearVelocity = Vector3.new() end) -- Reset forces
 					
-					-- Active high speed inverse routing trail
-					local escapeTimer = 1.6
-					while escapeTimer > 0 do
-						escapeTimer = escapeTimer - task.wait()
-						local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
-						local flatTarget = Vector3.new(targetPosition.X, 0, targetPosition.Z)
-						
-						if (flatChar - flatTarget).Magnitude < 4 and #positionHistory > 1 then
-							-- Clean crumb and grab the next historic segment to follow corridor curve
-							table.remove(positionHistory, #positionHistory)
-							targetPosition = positionHistory[#positionHistory] or rootPart.Position
-						end
-					end
+					task.wait(1.5) -- Uninterruptible run time duration
 					
-					-- Release Shift key safely
 					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
 					
 					isExecutingHitAndRun = false
 					isResting = false
-					positionHistory = {rootPart.Position} -- Flush cache
+					positionHistory = {rootPart.Position} -- Flush stack
 					targetPosition = calculateSmartLurkerPath()
 				end)
 			end
@@ -438,14 +427,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 	
-	-- PRIORITY 2: SPRINTING OUT OF CORRIDOR DANGER
+	-- PRIORITY 2: SPRINTING OUT OF CORRIDOR DANGER (FIXED RUN PHYSICS)
 	if isExecutingHitAndRun then 
 		local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
 		local flatTarget = Vector3.new(targetPosition.X, 0, targetPosition.Z)
 		local moveDirection = (flatTarget - flatChar).Unit
 		
 		local sprintSpeed = 16.5
-		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDirection * sprintSpeed end)
+		pcall(function() rootPart.AssemblyLinearVelocity = moveDirection * sprintSpeed end)
 		
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 16 * deltaTime).Unit
 		rootPart.CFrame = CFrame.lookAt(rootPart.Position + moveDirection * (sprintSpeed * deltaTime), rootPart.Position + currentVisualHeading)
