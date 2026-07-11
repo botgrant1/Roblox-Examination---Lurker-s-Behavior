@@ -27,6 +27,7 @@ local attackTriggerRange = 9
 local lastMeleeStrikeTime = 0
 local meleeCooldown = 2.4 
 local isExecutingHitAndRun = false
+local escapeActive = false -- Cierre de seguridad para evitar re-fijación del bicho
 
 local function calculateSmartLurkerPath()
 	local rayParams = RaycastParams.new()
@@ -46,7 +47,7 @@ local function calculateSmartLurkerPath()
 			
 			local isSafe = true
 			for dangerPos, _ in pairs(dangerousZones) do
-				if (potentialPoint - dangerPos).Magnitude < 25 then
+				if (potentialPoint - dangerPos).Magnitude < 28 then -- Mayor distancia de seguridad en patrulla
 					isSafe = false
 					break
 				end
@@ -88,7 +89,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "REACTIVE ESCAPE V4.2"
+titleLabel.Text = "REACTIVE ESCAPE V4.3"
 titleLabel.TextColor3 = Color3.fromRGB(245, 65, 65)
 titleLabel.TextSize = 13
 titleLabel.Font = Enum.Font.Code
@@ -216,7 +217,7 @@ task.spawn(function()
 		task.wait(1)
 		local now = os.clock()
 		for pos, timestamp in pairs(dangerousZones) do
-			if now - timestamp > 8.0 then 
+			if now - timestamp > 12.0 then -- Aumentado a 12 segundos de blacklist para evitar volver rápido
 				dangerousZones[pos] = nil
 			end
 		end
@@ -225,8 +226,9 @@ end)
 
 task.spawn(function()
 	while true do
-		task.wait(0.2)
-		if getgenv().LurkerAI_Enabled and character and character:FindFirstChild("HumanoidRootPart") and not isExecutingHitAndRun then
+		task.wait(0.15)
+		-- Bloqueo total si el bot está escapando activamente
+		if getgenv().LurkerAI_Enabled and character and character:FindFirstChild("HumanoidRootPart") and not isExecutingHitAndRun and not escapeActive then
 			local closestEnemy = nil
 			local shortestDistance = combatScanRange
 			local originPoint = rootPart.Position + Vector3.new(0, 0.5, 0)
@@ -274,7 +276,7 @@ task.spawn(function()
 				end
 			end
 			currentEnemyTarget = closestEnemy
-		elseif not getgenv().LurkerAI_Enabled then
+		elseif not getgenv().LurkerAI_Enabled or escapeActive then
 			currentEnemyTarget = nil
 		end
 	end
@@ -295,6 +297,7 @@ toggleButton.MouseButton1Click:Connect(function()
 		isResting = false
 		currentEnemyTarget = nil
 		isExecutingHitAndRun = false
+		escapeActive = false
 		
 		task.spawn(function()
 			task.wait(0.1)
@@ -310,6 +313,7 @@ toggleButton.MouseButton1Click:Connect(function()
 		isResting = false
 		currentEnemyTarget = nil
 		isExecutingHitAndRun = false
+		escapeActive = false
 		pcall(function() 
 			VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
 			humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() 
@@ -320,7 +324,8 @@ end)
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 then return end
 	
-	if currentEnemyTarget and currentEnemyTarget.Parent and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid") and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid").Health > 0 and not isExecutingHitAndRun then
+	-- PRIORIDAD 1: COMBATE COMPLETO (SOLO SI NO ESTÁ ESCAPANDO)
+	if currentEnemyTarget and currentEnemyTarget.Parent and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid") and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid").Health > 0 and not isExecutingHitAndRun and not escapeActive then
 		local enemyPos = currentEnemyTarget.Position
 		local distanceToEnemy = (rootPart.Position - enemyPos).Magnitude
 		
@@ -337,7 +342,10 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			if os.clock() - lastMeleeStrikeTime >= meleeCooldown then
 				local strikeLocation = enemyPos
 				lastMeleeStrikeTime = os.clock()
+				
 				isExecutingHitAndRun = true
+				escapeActive = true -- Bloquear re-detección de enemigos inmediatamente
+				currentEnemyTarget = nil
 				
 				statusLabel.Text = "MELEE STRIKE EXEC [G]"
 				statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
@@ -349,6 +357,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 				
 				dangerousZones[strikeLocation] = os.clock()
 				
+				-- ESCAPE GEOMÉTRICO EXTENDIDO
 				local rayParams = RaycastParams.new()
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				rayParams.FilterDescendantsInstances = {character}
@@ -357,16 +366,17 @@ RunService.Heartbeat:Connect(function(deltaTime)
 				local bestEscapeDirection = -vectorToEnemy 
 				local maximumOpenDistance = 0
 				
+				-- Escaneo profundo radial aumentado a 75 studs
 				for angleIdx = -4, 4 do
-					local rad = math.rad(angleIdx * 35) 
+					local rad = math.rad(angleIdx * 40) 
 					local rotDir = Vector3.new(
 						-vectorToEnemy.X * math.cos(rad) - -vectorToEnemy.Z * math.sin(rad),
 						0,
 						-vectorToEnemy.X * math.sin(rad) + -vectorToEnemy.Z * math.cos(rad)
 					).Unit
 					
-					local checkRay = Workspace:Raycast(rootPart.Position + Vector3.new(0, 0.5, 0), rotDir * 45, rayParams)
-					local currentOpenDist = checkRay and (checkRay.Position - rootPart.Position).Magnitude or 45
+					local checkRay = Workspace:Raycast(rootPart.Position + Vector3.new(0, 0.5, 0), rotDir * 75, rayParams)
+					local currentOpenDist = checkRay and (checkRay.Position - rootPart.Position).Magnitude or 75
 					
 					if currentOpenDist > maximumOpenDistance then
 						maximumOpenDistance = currentOpenDist
@@ -374,26 +384,31 @@ RunService.Heartbeat:Connect(function(deltaTime)
 					end
 				end
 				
-				local finalRunDistance = math.max(15, maximumOpenDistance - 4)
+				-- Fijamos destino final largo y forzado alejado del peligro
+				local finalRunDistance = math.max(25, maximumOpenDistance - 5)
 				targetPosition = rootPart.Position + (bestEscapeDirection * finalRunDistance)
 				
 				task.spawn(function()
-					currentEnemyTarget = nil
-					statusLabel.Text = "ACTIVE FLANK RUN [SHIFT]"
+					statusLabel.Text = "URGENT RETREAT [SHIFT]"
 					statusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
 					
 					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
 					
-					local escapeTimeout = 1.35
+					-- Loop forzado ininterrumpible de carrera por tiempo mínimo (2 segundos obligatorios)
+					local escapeTimeout = 2.0
 					while escapeTimeout > 0 do
 						escapeTimeout = escapeTimeout - task.wait()
 						local currentDistance = (Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z) - Vector3.new(targetPosition.X, 0, targetPosition.Z)).Magnitude
-						if currentDistance < 3.5 then break end
+						if currentDistance < 4 then break end
 					end
 					
 					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
 					
+					-- Pequeña pausa táctica antes de abrir de nuevo los ojos al entorno
+					task.wait(0.2)
+					
 					isExecutingHitAndRun = false
+					escapeActive = false -- Liberar bloqueo de enemigos
 					isResting = false
 					targetPosition = calculateSmartLurkerPath()
 				end)
@@ -402,19 +417,21 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 	
-	if isExecutingHitAndRun then 
+	-- PRIORIDAD 2: PHYSICS MOTOR DE SPRINT (HUIDA ININTERRUMPIBLE)
+	if isExecutingHitAndRun or escapeActive then 
 		local flatChar = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
 		local flatTarget = Vector3.new(targetPosition.X, 0, targetPosition.Z)
 		local moveDirection = (flatTarget - flatChar).Unit
 		
 		local sprintSpeed = 16.5
-		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDirection * sprintSpeed end)
+		pcall(function() rootPart.AssemblyLinearVelocity = moveDirection * sprintSpeed end)
 		
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 16 * deltaTime).Unit
 		rootPart.CFrame = CFrame.lookAt(rootPart.Position + moveDirection * (sprintSpeed * deltaTime), rootPart.Position + currentVisualHeading)
 		return 
 	end
 
+	-- PRIORIDAD 3: PATRULLA ESTÁNDAR
 	local currentSpeed = 7.2
 	local moveDirection = Vector3.new()
 	local isCurrentlyMoving = false
