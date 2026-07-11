@@ -28,6 +28,14 @@ local lastMeleeStrikeTime = 0
 local meleeCooldown = 2.4 
 local internalManualHandover = false 
 
+-- Control de estado para recalculación post-override
+local overrideActive = false
+
+local function isPlayerMovingInput()
+	local moveDirection = humanoid.MoveDirection
+	return moveDirection.Magnitude > 0.1
+end
+
 local function calculateSmartLurkerPath()
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -61,14 +69,13 @@ local function calculateSmartLurkerPath()
 	return #validOptions > 0 and validOptions[math.random(1, #validOptions)] or rootPart.Position
 end
 
--- INTERFAZ GRÁFICA AMPLIADA (V5.0 con sección de actualizaciones)
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 240, 0, 360) -- Altura extendida para acomodar los parches
+mainFrame.Size = UDim2.new(0, 240, 0, 360)
 mainFrame.Position = UDim2.new(0.05, 0, 0.35, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(15, 12, 12)
 mainFrame.BorderSizePixel = 0
@@ -89,7 +96,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "Ramiréz´s BOT Behavior V5"
+titleLabel.Text = "Ramiréz BOT Behavior V5.2"
 titleLabel.TextColor3 = Color3.fromRGB(255, 65, 65)
 titleLabel.TextSize = 12
 titleLabel.Font = Enum.Font.Code
@@ -174,7 +181,6 @@ local plusCorner = Instance.new("UICorner")
 plusCorner.CornerRadius = UDim.new(0, 4)
 plusCorner.Parent = plusButton
 
--- NUEVO APARTADO: UPDATES LOG (Historial de Cambios)
 local updatesHeader = Instance.new("TextLabel")
 updatesHeader.Size = UDim2.new(0, 200, 0, 20)
 updatesHeader.Position = UDim2.new(0, 20, 0, 155)
@@ -205,7 +211,7 @@ local logLabel = Instance.new("TextLabel")
 logLabel.Size = UDim2.new(1, -12, 1, -10)
 logLabel.Position = UDim2.new(0, 6, 0, 5)
 logLabel.BackgroundTransparency = 1
-logLabel.Text = "[+] CHANGELOG V5.0:\n• Handover: Auto-disables system on melee strike.\n• Pushback: Forced 0.22s micro-retreat after [G].\n• Physics: Removed buggy jump algorithms.\n• FPS: Cleaned loops to maximize game stability."
+logLabel.Text = "[+] CHANGELOG V5.2:\n• Handover: Auto-disables system on melee strike.\n• Pushback: Forced 0.22s micro-retreat after [G].\n• Fixed Sliding: Added automatic state synchronization.\n• Dynamic Recalculation: Forces a clean path recalculation immediately after User Override breaks."
 logLabel.TextColor3 = Color3.fromRGB(165, 150, 150)
 logLabel.TextSize = 11
 logLabel.Font = Enum.Font.Code
@@ -260,6 +266,7 @@ local function disableSystemFully()
 	buttonStroke.Color = Color3.fromRGB(100, 40, 40)
 	isResting = false
 	currentEnemyTarget = nil
+	overrideActive = false
 	pcall(function() 
 		humanoid.RootPart.AssemblyLinearVelocity = Vector3.new() 
 	end)
@@ -342,6 +349,7 @@ toggleButton.MouseButton1Click:Connect(function()
 	else
 		getgenv().LurkerAI_Enabled = true
 		internalManualHandover = false
+		overrideActive = false
 		toggleButton.Text = "SYSTEM: ACTIVE"
 		toggleButton.BackgroundColor3 = Color3.fromRGB(25, 40, 25)
 		toggleButton.TextColor3 = Color3.fromRGB(100, 220, 100)
@@ -365,7 +373,25 @@ end)
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 or internalManualHandover then return end
 	
-	-- PRIORIDAD 1: ATAQUE Y CESIÓN INMEDATA DEL CONTROL
+	-- COMPORTAMIENTO INTERRUPTOR: Prioridad absoluta de movimiento manual (Override)
+	if isPlayerMovingInput() and not currentEnemyTarget then
+		overrideActive = true -- Alerta que modificaste la posición del mapa a mano
+		statusLabel.Text = "User Override: Moving..."
+		statusLabel.TextColor3 = Color3.fromRGB(140, 170, 230)
+		return 
+	end
+
+	-- CORRECCIÓN DINÁMICA POST-OVERRIDE: Si soltaste el teclado, borra el destino viejo y calcula uno limpio
+	if overrideActive and not isPlayerMovingInput() then
+		overrideActive = false
+		isResting = false
+		targetPosition = calculateSmartLurkerPath() -- Nueva ruta limpia en base a dónde te frenaste
+		statusLabel.Text = "Recalculating post-override..."
+		statusLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+		return
+	end
+
+	-- PRIORIDAD 1: ATAQUE Y CESIÓN INMEDIATA DEL CONTROL
 	if currentEnemyTarget and currentEnemyTarget.Parent and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid") and currentEnemyTarget.Parent:FindFirstChildOfClass("Humanoid").Health > 0 then
 		local enemyPos = currentEnemyTarget.Position
 		local distanceToEnemy = (rootPart.Position - enemyPos).Magnitude
@@ -378,7 +404,10 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		
 		if distanceToEnemy > (attackTriggerRange - 2) then
 			local moveDir = (Vector3.new(enemyPos.X, 0, enemyPos.Z) - Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)).Unit
-			pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDir * 9.8 end)
+			pcall(function() 
+				humanoid.RootPart.AssemblyLinearVelocity = moveDir * 9.8 
+				humanoid:ChangeState(Enum.HumanoidStateType.Running)
+			end)
 		else
 			if os.clock() - lastMeleeStrikeTime >= meleeCooldown then
 				lastMeleeStrikeTime = os.clock()
@@ -451,7 +480,10 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		currentVisualHeading = currentVisualHeading:Lerp(moveDirection, 14 * deltaTime).Unit
 		rootPart.CFrame = CFrame.lookAt(nextPosition, rootPart.Position + currentVisualHeading)
 		
-		pcall(function() humanoid.RootPart.AssemblyLinearVelocity = moveDirection * currentSpeed end)
+		pcall(function() 
+			rootPart.AssemblyLinearVelocity = moveDirection * currentSpeed 
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end)
 		
 		local animator = humanoid:FindFirstChildOfClass("Animator")
 		if animator then
