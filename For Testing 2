@@ -1,7 +1,6 @@
--- BOT BEHAVIOR MASTER SYSTEM V5.5: ANTI-CRASH CORE & PANEL UNIFICADO
+-- BOT BEHAVIOR MASTER SYSTEM V5.6: STANDALONE INJECTION CORE
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 
 local localPlayer = Players.LocalPlayer
 
@@ -14,8 +13,25 @@ local BotSettings = {
 	CheckRate = 0.1,         
 }
 
--- CONFIGURACIÓN DE INSTANCIA RAÍZ (Modelo del bot)
-local botCharacter = script.Parent
+-- =============================================================================
+-- DETECCIÓN TOTALMENTE DINÁMICA DEL BOT (SIN USAR SCRIPT.PARENT)
+-- =============================================================================
+local function getBotCharacter()
+	-- 1. Intentar buscarlo directamente por el nombre que vimos en tus capturas
+	local namedBot = Workspace:FindFirstChild("VILIANOV_KRAVCHENKO")
+	if namedBot then return namedBot end
+	
+	-- 2. Si no lo encuentra por nombre, busca cualquier modelo en Workspace que tenga un Humanoid y NO sea un jugador real
+	for _, obj in ipairs(Workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+			if not Players:GetPlayerFromCharacter(obj) and obj ~= localPlayer.Character then
+				return obj -- Encontró un NPC/Dummy de pruebas
+			end
+		end
+	end
+	
+	return nil
+end
 
 -- VARIABLES DE ESTADO GLOBALES
 getgenv().BotMaster_SystemActive = false
@@ -26,17 +42,15 @@ local currentBotState = BotStates.PATROL
 local currentNodeIndex = 1
 local currentTarget = nil
 
--- Destruir interfaces previas repetidas en el PlayerGui
 if localPlayer:WaitForChild("PlayerGui"):FindFirstChild("BotControlMasterGui") then
 	localPlayer.PlayerGui.BotControlMasterGui:Destroy()
 end
 
 -- =============================================================================
--- LOGICA CORE: COMPROBACIONES DINÁMICAS SEGURAS (ANTI-NIL)
+-- LOGICA CORE RE-ESTRUCTURADA (SEGURA ANTE INJECCIÓN)
 -- =============================================================================
-local function checkVisualCone(targetPart)
-	-- Búsqueda segura en caliente de la cabeza del bot
-	local currentHead = botCharacter:FindFirstChild("Head")
+local function checkVisualCone(targetPart, botChar)
+	local currentHead = botChar:FindFirstChild("Head")
 	if not currentHead then return false end
 	
 	local botToTarget = (targetPart.Position - currentHead.Position)
@@ -51,7 +65,7 @@ local function checkVisualCone(targetPart)
 	
 	if angle <= (BotSettings.FieldOfView / 2) then
 		local raycastParams = RaycastParams.new()
-		raycastParams.FilterDescendantsInstances = {botCharacter}
+		raycastParams.FilterDescendantsInstances = {botChar}
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		
 		local raycastResult = Workspace:Raycast(currentHead.Position, botToTarget, raycastParams)
@@ -62,13 +76,13 @@ local function checkVisualCone(targetPart)
 	return false
 end
 
-local function scanTargets()
+local function scanTargets(botChar)
 	if not getgenv().BotMaster_VisualActive then return nil end
 	for _, player in ipairs(Players:GetPlayers()) do
 		local char = player.Character
 		if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
 			if char.Humanoid.Health > 0 and player ~= localPlayer then
-				if checkVisualCone(char.HumanoidRootPart) then
+				if checkVisualCone(char.HumanoidRootPart, botChar) then
 					return char
 				end
 			end
@@ -77,10 +91,9 @@ local function scanTargets()
 	return nil
 end
 
-local function executePatrol()
-	-- Búsqueda en caliente de componentes motrices
-	local currentTorso = botCharacter:FindFirstChild("Torso") or botCharacter:FindFirstChild("UpperTorso")
-	local currentHumanoid = botCharacter:FindFirstChildOfClass("Humanoid")
+local function executePatrol(botChar)
+	local currentTorso = botChar:FindFirstChild("Torso") or botChar:FindFirstChild("UpperTorso")
+	local currentHumanoid = botChar:FindFirstChildOfClass("Humanoid")
 	
 	if not currentTorso or not currentHumanoid then return end
 	
@@ -107,34 +120,34 @@ local function executePatrol()
 	end
 end
 
--- HILO PRINCIPAL: MÁQUINA DE ESTADOS ASÍNCRONA
+-- HILO PRINCIPAL ASÍNCRONO
 task.spawn(function()
 	while task.wait(BotSettings.CheckRate) do
-		local currentHumanoid = botCharacter:FindFirstChildOfClass("Humanoid")
+		local botChar = getBotCharacter()
 		
-		if getgenv().BotMaster_SystemActive and currentHumanoid and currentHumanoid.Health > 0 then
-			local detectedTarget = scanTargets()
+		if botChar then
+			local currentHumanoid = botChar:FindFirstChildOfClass("Humanoid")
 			
-			if detectedTarget then
-				currentTarget = detectedTarget
-				currentBotState = BotStates.CHASE
-			else
-				if currentBotState == BotStates.CHASE then
-					currentTarget = nil
-					currentBotState = BotStates.PATROL
+			if getgenv().BotMaster_SystemActive and currentHumanoid and currentHumanoid.Health > 0 then
+				local detectedTarget = scanTargets(botChar)
+				
+				if detectedTarget then
+					currentTarget = detectedTarget
+					currentBotState = BotStates.CHASE
+				else
+					if currentBotState == BotStates.CHASE then
+						currentTarget = nil
+						currentBotState = BotStates.PATROL
+					end
 				end
-			end
-			
-			-- Fase de ejecución de acciones
-			if currentBotState == BotStates.CHASE and currentTarget and currentTarget:FindFirstChild("HumanoidRootPart") then
-				currentHumanoid:MoveTo(currentTarget.HumanoidRootPart.Position)
-			elseif currentBotState == BotStates.PATROL then
-				executePatrol()
-			end
-		else
-			-- Parada de emergencia si el Core está inactivo o el bot cayó inconsciente
-			if currentHumanoid then 
-				currentHumanoid:Move(Vector3.new(0,0,0)) 
+				
+				if currentBotState == BotStates.CHASE and currentTarget and currentTarget:FindFirstChild("HumanoidRootPart") then
+					currentHumanoid:MoveTo(currentTarget.HumanoidRootPart.Position)
+				elseif currentBotState == BotStates.PATROL then
+					executePatrol(botChar)
+				end
+			else
+				if currentHumanoid then currentHumanoid:Move(Vector3.new(0,0,0)) end
 			end
 		end
 	end
@@ -170,7 +183,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -10, 0, 35)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "BOT BEHAVIOR MANAGER V5.5"
+titleLabel.Text = "BOT BEHAVIOR MANAGER V5.6"
 titleLabel.TextColor3 = Color3.fromRGB(230, 180, 70)
 titleLabel.TextSize = 10
 titleLabel.Font = Enum.Font.Code
@@ -217,7 +230,7 @@ local logLabel = Instance.new("TextLabel")
 logLabel.Size = UDim2.new(0, 220, 0, 65)
 logLabel.Position = UDim2.new(0, 20, 0, 145)
 logLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-logLabel.Text = "SYSTEMS DIAGNOSTIC:\nHot-loaded environment. Ready."
+logLabel.Text = "SYSTEMS DIAGNOSTIC:\nStandalone Engine loaded. Ready."
 logLabel.TextColor3 = Color3.fromRGB(140, 140, 150)
 logLabel.TextSize = 11
 logLabel.Font = Enum.Font.Code
@@ -243,7 +256,7 @@ coreToggle.MouseButton1Click:Connect(function()
 		coreToggle.BackgroundColor3 = Color3.fromRGB(25, 45, 30)
 		coreToggle.TextColor3 = Color3.fromRGB(100, 230, 100)
 		cStroke.Color = Color3.fromRGB(45, 120, 55)
-		logLabel.Text = "SYSTEMS DIAGNOSTIC:\nCore active. State: PATROL.\nExecuting dynamic calculations..."
+		logLabel.Text = "SYSTEMS DIAGNOSTIC:\nCore active. State: PATROL.\nScanning via standalone search..."
 		logLabel.TextColor3 = Color3.fromRGB(110, 210, 110)
 	end
 end)
@@ -261,16 +274,5 @@ visualToggle.MouseButton1Click:Connect(function()
 		visualToggle.BackgroundColor3 = Color3.fromRGB(25, 40, 55)
 		visualToggle.TextColor3 = Color3.fromRGB(100, 180, 255)
 		vStroke.Color = Color3.fromRGB(40, 90, 140)
-	end
-end)
-
--- Auto-limpieza en la interfaz si el humanoide del bot muere definitivamente
-task.spawn(function()
-	while task.wait(1) do
-		local currentHumanoid = botCharacter:FindFirstChildOfClass("Humanoid")
-		if currentHumanoid and currentHumanoid.Health <= 0 then
-			screenGui:Destroy()
-			break
-		end
 	end
 end)
