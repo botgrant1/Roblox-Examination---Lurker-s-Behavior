@@ -1,4 +1,4 @@
--- RE-CONEXIÓN INTERFAZ GRAFICA FE: CONTROLLER V1.0 (Escala Cero NameTag)
+-- TAG DISRUPTOR FE V1.2: FIXED CLEANUP ON DEATH
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -6,16 +6,17 @@ local localPlayer = Players.LocalPlayer
 local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
 local head = character:WaitForChild("Head", 5)
 local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+local humanoid = character:WaitForChild("Humanoid", 5)
 
 getgenv().FENameTag_Enabled = false
 local heartbeatConnection = nil
-local originalHeadSize = Vector3.new(1, 1, 1) -- Resguardo por defecto del motor
+local originalHeadSize = Vector3.new(1, 1, 1)
+local originalAttachments = {}
 
 if localPlayer:WaitForChild("PlayerGui"):FindFirstChild("TagControlGui") then
 	localPlayer.PlayerGui.TagControlGui:Destroy()
 end
 
--- Funciones de Acoplamiento y Desacoplamiento Local
 local function applyFEScaleCero()
 	character = localPlayer.Character
 	if not character then return end
@@ -24,34 +25,33 @@ local function applyFEScaleCero()
 	
 	if head and torso then
 		originalHeadSize = head.Size
+		table.clear(originalAttachments)
 		
-		-- 1. Asegurar accesorios localmente al Torso (Mantiene la Skin impecable)
+		-- 1. Redireccionar Attachments de la Cabeza al Torso de forma relativa
 		for _, instance in ipairs(character:GetChildren()) do
 			if instance:IsA("Accessory") and instance:FindFirstChild("Handle") then
 				local handle = instance.Handle
+				local accAnc = handle:FindFirstChildOfClass("Attachment")
 				
-				for _, joint in ipairs(handle:GetChildren()) do
-					if joint:IsA("Weld") or joint:IsA("WeldConstraint") or joint:IsA("Attachment") then
-						joint:Destroy()
+				if accAnc then
+					local headAnc = head:FindFirstChild(accAnc.Name)
+					if headAnc then
+						originalAttachments[accAnc] = headAnc.Parent
+						headAnc.Parent = torso
+						headAnc.CFrame = CFrame.new(0, 1.5, 0) 
 					end
 				end
-				
-				local newWeld = Instance.new("WeldConstraint")
-				newWeld.Part0 = handle
-				newWeld.Part1 = torso
-				newWeld.Parent = handle
-				handle.CanCollide = false
 			end
 		end
 		
-		-- 2. Encogimiento inicial de la cabeza
+		-- 2. Achicar la cabeza a nivel microscópico para romper el NameTag
 		head.Size = Vector3.new(0.01, 0.01, 0.01)
 		local mesh = head:FindFirstChildOfClass("SpecialMesh")
 		if mesh then
 			mesh.Scale = Vector3.new(0, 0, 0)
 		end
 		
-		-- 3. Bucle de persistencia para ganarle a las animaciones del servidor
+		-- 3. Persistencia anti-animación
 		if heartbeatConnection then heartbeatConnection:Disconnect() end
 		heartbeatConnection = RunService.Heartbeat:Connect(function()
 			if head and head.Parent and getgenv().FENameTag_Enabled then
@@ -73,36 +73,25 @@ local function restoreCharacterNormality()
 	torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
 	
 	if head and torso then
-		-- Restaurar dimensiones físicas reales de la cabeza
 		head.Size = originalHeadSize
 		local mesh = head:FindFirstChildOfClass("SpecialMesh")
 		if mesh then
-			mesh.Scale = Vector3.new(1, 1, 1) -- Escala base de Roblox
+			mesh.Scale = Vector3.new(1, 1, 1)
 		end
 		
-		-- Forzar al juego a recargar las uniones de los accesorios matando los welds locales
-		-- Al remover los welds locales, el motor vuelve a heredar el posicionamiento nativo
-		for _, instance in ipairs(character:GetChildren()) do
-			if instance:IsA("Accessory") and instance:FindFirstChild("Handle") then
-				local handle = instance.Handle
-				for _, joint in ipairs(handle:GetChildren()) do
-					if joint:IsA("WeldConstraint") then
-						joint:Destroy()
-					end
+		for accAnc, originalParent in pairs(originalAttachments) do
+			if accAnc and originalParent then
+				local headAnc = torso:FindFirstChild(accAnc.Name)
+				if headAnc then
+					headAnc.Parent = head
+					headAnc.CFrame = CFrame.new(0, 0, 0)
 				end
-				
-				-- Creamos un re-weld rápido a la cabeza restaurada
-				local repairWeld = Instance.new("Weld")
-				repairWeld.Name = "AccessoryWeld"
-				repairWeld.Part0 = handle
-				repairWeld.Part1 = head
-				repairWeld.Parent = handle
 			end
 		end
 	end
 end
 
--- INTERFAZ GRÁFICA DE CONTROL (TagControlGui)
+-- INTERFAZ GRÁFICA
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "TagControlGui"
 screenGui.ResetOnSpawn = false
@@ -110,7 +99,7 @@ screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 240, 0, 180)
-mainFrame.Position = UDim2.new(0.05, 0, 0.15, 0) -- Ubicado un poco más arriba para que no tape tu otro menú
+mainFrame.Position = UDim2.new(0.05, 0, 0.15, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -130,7 +119,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -40, 0, 35)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "TAG DISRUPTOR FE V1.0"
+titleLabel.Text = "TAG DISRUPTOR FE V1.2"
 titleLabel.TextColor3 = Color3.fromRGB(100, 140, 255)
 titleLabel.TextSize = 11
 titleLabel.Font = Enum.Font.Code
@@ -202,7 +191,6 @@ minimizeButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Lógica de activación interactiva
 toggleButton.MouseButton1Click:Connect(function()
 	if getgenv().FENameTag_Enabled then
 		getgenv().FENameTag_Enabled = false
@@ -210,10 +198,8 @@ toggleButton.MouseButton1Click:Connect(function()
 		toggleButton.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
 		toggleButton.TextColor3 = Color3.fromRGB(120, 140, 180)
 		buttonStroke.Color = Color3.fromRGB(50, 60, 80)
-		
 		statusLabel.Text = "Status: Broadcast Active\nNameTag visible to server."
 		statusLabel.TextColor3 = Color3.fromRGB(140, 140, 140)
-		
 		restoreCharacterNormality()
 	else
 		getgenv().FENameTag_Enabled = true
@@ -221,22 +207,19 @@ toggleButton.MouseButton1Click:Connect(function()
 		toggleButton.BackgroundColor3 = Color3.fromRGB(20, 45, 25)
 		toggleButton.TextColor3 = Color3.fromRGB(100, 255, 100)
 		buttonStroke.Color = Color3.fromRGB(40, 120, 40)
-		
-		statusLabel.Text = "Status: COLLAPSED (FE)\nHead scale to 0.01.\nNameTag hidden from server."
+		statusLabel.Text = "Status: COLLAPSED (FE)\nAttachments bound to Torso.\nNameTag hidden from server."
 		statusLabel.TextColor3 = Color3.fromRGB(100, 220, 100)
-		
 		applyFEScaleCero()
 	end
 end)
 
--- Persistencia al morir y respawnear
-localPlayer.CharacterAdded:Connect(function(newChar)
-	character = newChar
-	task.wait(0.5)
-	if getgenv().FENameTag_Enabled then
-		applyFEScaleCero()
-	end
-end)
+-- SECCIÓN DE LIMPIEZA TOTAL POR MUERTE/REINICIO
+if humanoid then
+	humanoid.Died:Connect(function()
+		if heartbeatConnection then heartbeatConnection:Disconnect() end
+		screenGui:Destroy()
+	end)
+end
 
 localPlayer.CharacterRemoving:Connect(function()
 	if heartbeatConnection then heartbeatConnection:Disconnect() end
