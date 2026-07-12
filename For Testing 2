@@ -1,1 +1,45 @@
+-- SCRIPT LOCAL: Ocultar NameTags destruyendo el renderizado local
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local localPlayer = Players.LocalPlayer
 
+local function cleanNameTags(character)
+    if not character then return end
+    local head = character:WaitForChild("Head", 5)
+    if head then
+        -- Buscamos cualquier interfaz flotante metida en la cabeza
+        for _, obj in ipairs(head:GetChildren()) do
+            if obj:IsA("BillboardGui") or obj:IsA("ScreenGui") or string.find(string.lower(obj.Name), "tag") or string.find(string.lower(obj.Name), "name") then
+                obj.Enabled = false -- O obj:Destroy() si querés eliminarlo de cuajo
+            end
+        end
+    end
+    
+    -- Forzado por si el juego usa el sistema nativo del Humanoid
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    end
+end
+
+-- Monitorear cuando spawneas
+localPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    cleanNameTags(char)
+end)
+
+if localPlayer.Character then
+    cleanNameTags(localPlayer.Character)
+end
+
+-- Opcional: Si querés limpiar también los tags de los bots/enemigos que aparezcan en Examination:
+RunService.Heartbeat:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then
+            local h = p.Character:FindFirstChild("Humanoid")
+            if h and h.DisplayDistanceType ~= Enum.HumanoidDisplayDistanceType.None then
+                h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+            end
+        end
+    end
+end)
