@@ -1,4 +1,4 @@
--- BOT BEHAVIOR MASTER SYSTEM V5.4: CORE & INTERFAZ DE CONTROL UNIFICADA
+-- BOT BEHAVIOR MASTER SYSTEM V5.5: ANTI-CRASH CORE & PANEL UNIFICADO
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -14,13 +14,10 @@ local BotSettings = {
 	CheckRate = 0.1,         
 }
 
--- ENCONTRAR INSTANCIAS (Se buscan dinámicamente si el bot spawnea)
+-- CONFIGURACIÓN DE INSTANCIA RAÍZ (Modelo del bot)
 local botCharacter = script.Parent
-local botHead = botCharacter:WaitForChild("Head", 5)
-local botTorso = botCharacter:FindFirstChild("Torso") or botCharacter:FindFirstChild("UpperTorso")
-local botHumanoid = botCharacter:WaitForChild("Humanoid", 5)
 
--- VARIABLES DE ESTADO GLOBALES (Accesibles por el Menú)
+-- VARIABLES DE ESTADO GLOBALES
 getgenv().BotMaster_SystemActive = false
 getgenv().BotMaster_VisualActive = false
 
@@ -35,16 +32,19 @@ if localPlayer:WaitForChild("PlayerGui"):FindFirstChild("BotControlMasterGui") t
 end
 
 -- =============================================================================
--- LOGICA CORE: PERCEPCIÓN VISUAL & MOVIMIENTO
+-- LOGICA CORE: COMPROBACIONES DINÁMICAS SEGURAS (ANTI-NIL)
 -- =============================================================================
 local function checkVisualCone(targetPart)
-	if not botHead then return false end
-	local botToTarget = (targetPart.Position - botHead.Position)
+	-- Búsqueda segura en caliente de la cabeza del bot
+	local currentHead = botCharacter:FindFirstChild("Head")
+	if not currentHead then return false end
+	
+	local botToTarget = (targetPart.Position - currentHead.Position)
 	local distance = botToTarget.Magnitude
 	
 	if distance > BotSettings.ViewDistance then return false end
 	
-	local botLookDirection = botHead.CFrame.LookVector
+	local botLookDirection = currentHead.CFrame.LookVector
 	local directionToTarget = botToTarget.Unit
 	local dotProduct = botLookDirection:Dot(directionToTarget)
 	local angle = math.acos(dotProduct) * (180 / math.pi)
@@ -54,7 +54,7 @@ local function checkVisualCone(targetPart)
 		raycastParams.FilterDescendantsInstances = {botCharacter}
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		
-		local raycastResult = Workspace:Raycast(botHead.Position, botToTarget, raycastParams)
+		local raycastResult = Workspace:Raycast(currentHead.Position, botToTarget, raycastParams)
 		if raycastResult and raycastResult.Instance:IsDescendantOf(targetPart.Parent) then
 			return true 
 		end
@@ -67,7 +67,7 @@ local function scanTargets()
 	for _, player in ipairs(Players:GetPlayers()) do
 		local char = player.Character
 		if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
-			if char.Humanoid.Health > 0 and player ~= localPlayer then -- Ignora al scripter si quiere testear con dummies/otros
+			if char.Humanoid.Health > 0 and player ~= localPlayer then
 				if checkVisualCone(char.HumanoidRootPart) then
 					return char
 				end
@@ -78,10 +78,14 @@ local function scanTargets()
 end
 
 local function executePatrol()
-	if not botTorso or not botHumanoid then return end
+	-- Búsqueda en caliente de componentes motrices
+	local currentTorso = botCharacter:FindFirstChild("Torso") or botCharacter:FindFirstChild("UpperTorso")
+	local currentHumanoid = botCharacter:FindFirstChildOfClass("Humanoid")
+	
+	if not currentTorso or not currentHumanoid then return end
 	
 	if #BotSettings.PatrolNodes == 0 then
-		local basePos = botTorso.Position
+		local basePos = currentTorso.Position
 		BotSettings.PatrolNodes = {
 			basePos + Vector3.new(20, 0, 0),
 			basePos + Vector3.new(20, 0, 20),
@@ -92,8 +96,8 @@ local function executePatrol()
 
 	local targetNodePos = BotSettings.PatrolNodes[currentNodeIndex]
 	if targetNodePos then
-		botHumanoid:MoveTo(targetNodePos)
-		local distanceToNode = (botTorso.Position - targetNodePos).Magnitude
+		currentHumanoid:MoveTo(targetNodePos)
+		local distanceToNode = (currentTorso.Position - targetNodePos).Magnitude
 		if distanceToNode <= BotSettings.AcceptanceRadius then
 			currentNodeIndex = currentNodeIndex + 1
 			if currentNodeIndex > #BotSettings.PatrolNodes then
@@ -103,11 +107,12 @@ local function executePatrol()
 	end
 end
 
--- HILO PRINCIPAL DEL BEHAVIOR
+-- HILO PRINCIPAL: MÁQUINA DE ESTADOS ASÍNCRONA
 task.spawn(function()
 	while task.wait(BotSettings.CheckRate) do
-		if getgenv().BotMaster_SystemActive then
-			-- Si el sistema visual está encendido, calcula persecución
+		local currentHumanoid = botCharacter:FindFirstChildOfClass("Humanoid")
+		
+		if getgenv().BotMaster_SystemActive and currentHumanoid and currentHumanoid.Health > 0 then
 			local detectedTarget = scanTargets()
 			
 			if detectedTarget then
@@ -120,21 +125,23 @@ task.spawn(function()
 				end
 			end
 			
-			-- Máquina de decisiones ejecutable
+			-- Fase de ejecución de acciones
 			if currentBotState == BotStates.CHASE and currentTarget and currentTarget:FindFirstChild("HumanoidRootPart") then
-				botHumanoid:MoveTo(currentTarget.HumanoidRootPart.Position)
+				currentHumanoid:MoveTo(currentTarget.HumanoidRootPart.Position)
 			elseif currentBotState == BotStates.PATROL then
 				executePatrol()
 			end
 		else
-			-- Si la IA global está apagada, frena el bot por completo
-			if botHumanoid then botHumanoid:Move(Vector3.new(0,0,0)) end
+			-- Parada de emergencia si el Core está inactivo o el bot cayó inconsciente
+			if currentHumanoid then 
+				currentHumanoid:Move(Vector3.new(0,0,0)) 
+			end
 		end
 	end
 end)
 
 -- =============================================================================
--- INTERFAZ GRÁFICA DE OPERACIONES (Master Menu)
+-- INTERFAZ GRÁFICA DE OPERACIONES (Panel Táctico)
 -- =============================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BotControlMasterGui"
@@ -143,7 +150,7 @@ screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 260, 0, 230)
-mainFrame.Position = UDim2.new(0.7, 0, 0.2, 0) -- Ubicado a la derecha de la pantalla
+mainFrame.Position = UDim2.new(0.7, 0, 0.2, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -163,14 +170,13 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -10, 0, 35)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "BOT BEHAVIOR MANAGER V5.4"
+titleLabel.Text = "BOT BEHAVIOR MANAGER V5.5"
 titleLabel.TextColor3 = Color3.fromRGB(230, 180, 70)
 titleLabel.TextSize = 10
 titleLabel.Font = Enum.Font.Code
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = mainFrame
 
--- BOTÓN 1: CORE ENGINE (Encendido/Apagado General)
 local coreToggle = Instance.new("TextButton")
 coreToggle.Size = UDim2.new(0, 220, 0, 38)
 coreToggle.Position = UDim2.new(0, 20, 0, 45)
@@ -189,7 +195,6 @@ local cStroke = Instance.new("UIStroke")
 cStroke.Color = Color3.fromRGB(60, 60, 80)
 cStroke.Parent = coreToggle
 
--- BOTÓN 2: VISUAL CONE (Activar Cono Perceptivo de Visión)
 local visualToggle = Instance.new("TextButton")
 visualToggle.Size = UDim2.new(0, 220, 0, 38)
 visualToggle.Position = UDim2.new(0, 20, 0, 95)
@@ -208,12 +213,11 @@ local vStroke = Instance.new("UIStroke")
 vStroke.Color = Color3.fromRGB(60, 60, 80)
 vStroke.Parent = visualToggle
 
--- MONITOR DE DIAGNÓSTICO DEL BOT
 local logLabel = Instance.new("TextLabel")
 logLabel.Size = UDim2.new(0, 220, 0, 65)
 logLabel.Position = UDim2.new(0, 20, 0, 145)
 logLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-logLabel.Text = "SYSTEMS DIAGNOSTIC:\nAwait Core activation sequence..."
+logLabel.Text = "SYSTEMS DIAGNOSTIC:\nHot-loaded environment. Ready."
 logLabel.TextColor3 = Color3.fromRGB(140, 140, 150)
 logLabel.TextSize = 11
 logLabel.Font = Enum.Font.Code
@@ -224,7 +228,6 @@ local lCorner = Instance.new("UICorner")
 lCorner.CornerRadius = UDim.new(0, 4)
 lCorner.Parent = logLabel
 
--- CONTROL INTERACTIVO DE COMPORTAMIENTO
 coreToggle.MouseButton1Click:Connect(function()
 	if getgenv().BotMaster_SystemActive then
 		getgenv().BotMaster_SystemActive = false
@@ -232,7 +235,6 @@ coreToggle.MouseButton1Click:Connect(function()
 		coreToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 		coreToggle.TextColor3 = Color3.fromRGB(160, 160, 170)
 		cStroke.Color = Color3.fromRGB(60, 60, 80)
-		
 		logLabel.Text = "SYSTEMS DIAGNOSTIC:\nCore Engine offline. Bot halted."
 		logLabel.TextColor3 = Color3.fromRGB(140, 140, 150)
 	else
@@ -241,8 +243,7 @@ coreToggle.MouseButton1Click:Connect(function()
 		coreToggle.BackgroundColor3 = Color3.fromRGB(25, 45, 30)
 		coreToggle.TextColor3 = Color3.fromRGB(100, 230, 100)
 		cStroke.Color = Color3.fromRGB(45, 120, 55)
-		
-		logLabel.Text = "SYSTEMS DIAGNOSTIC:\nCore active. State: PATROL.\nExecuting Node-route processing..."
+		logLabel.Text = "SYSTEMS DIAGNOSTIC:\nCore active. State: PATROL.\nExecuting dynamic calculations..."
 		logLabel.TextColor3 = Color3.fromRGB(110, 210, 110)
 	end
 end)
@@ -263,9 +264,13 @@ visualToggle.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Limpieza segura ante destrucción del bot/script
-if botHumanoid then
-	botHumanoid.Died:Connect(function()
-		screenGui:Destroy()
-	end)
-end
+-- Auto-limpieza en la interfaz si el humanoide del bot muere definitivamente
+task.spawn(function()
+	while task.wait(1) do
+		local currentHumanoid = botCharacter:FindFirstChildOfClass("Humanoid")
+		if currentHumanoid and currentHumanoid.Health <= 0 then
+			screenGui:Destroy()
+			break
+		end
+	end
+end)
