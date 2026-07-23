@@ -1,4 +1,3 @@
--- Ramiréz BOT Behavior V6.0 - FULL SYSTEM RESTORATION (LASERS & PATHING FIXED)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -17,9 +16,6 @@ if player:WaitForChild("PlayerGui"):FindFirstChild("LurkerControlGui") then
 	player.PlayerGui.LurkerControlGui:Destroy()
 end
 
--- =============================================================================
--- BASE DE DATOS DE ARMAS OFICIALES (EXAMINATION WIKI)
--- =============================================================================
 local WeaponRegistry = {
 	["A9 Brigadier"]     = { FireRate = 0.25, KeepDistance = 18, AutoADS = true },
 	["Lock-17"]          = { FireRate = 0.20, KeepDistance = 18, AutoADS = true },
@@ -62,7 +58,6 @@ local overrideActive = false
 local leftLaserPart = nil
 local rightLaserPart = nil
 
--- RECONOCIMIENTO DE INVENTARIO MEJORADO
 local function scanEquippedWeapon()
 	if not character then return end
 	local targetTool = character:FindFirstChildOfClass("Tool")
@@ -106,9 +101,6 @@ local function isPlayerMovingInput()
 	return moveDirection.Magnitude > 0.1
 end
 
--- =============================================================================
--- RESTAURADO: FILTRO MATEMÁTICO DE CONO VISUAL Y ASIGNACIÓN DE LÁSERES FOV
--- =============================================================================
 local function updateVisionLasers()
 	if not getgenv().Ramirez_ShowFOV or not getgenv().LurkerAI_Enabled or not character:FindFirstChild("Head") then
 		if leftLaserPart then leftLaserPart:Destroy() leftLaserPart = nil end
@@ -187,7 +179,6 @@ local function isTargetInRamirezCone(enemyRoot)
 	return false
 end
 
--- RESTAURADO: GENERADOR DE RUTA AUTÓNOMA PARA PASILLOS
 local function calculateSmartLurkerPath()
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -216,9 +207,6 @@ local function calculateSmartLurkerPath()
 	return #validOptions > 0 and validOptions[math.random(1, #validOptions)] or (rootPart.Position + rootPart.CFrame.LookVector * 15)
 end
 
--- =============================================================================
--- INTERFAZ GRÁFICA V6.0
--- =============================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LurkerControlGui"
 screenGui.ResetOnSpawn = false
@@ -507,7 +495,6 @@ toggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- SCANNER CONO VISUAL Y REGISTRO DE ARMAS LIVE
 task.spawn(function()
 	while true do
 		task.wait(0.1) 
@@ -550,9 +537,6 @@ task.spawn(function()
 	end
 end)
 
--- =============================================================================
--- EXEC_CORE COMPLETAMENTE RESTAURADO V6.0
--- =============================================================================
 RunService.Heartbeat:Connect(function(deltaTime)
 	if not getgenv().LurkerAI_Enabled or not humanoid or humanoid.Health <= 0 or internalManualHandover then 
 		if leftLaserPart then leftLaserPart:Destroy() leftLaserPart = nil end
@@ -562,7 +546,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	
 	updateVisionLasers()
 	
-	-- Comprobación manual: Interrumpe patrulla si te movés vos
 	if isPlayerMovingInput() and not currentEnemyTarget then
 		overrideActive = true 
 		statusLabel.Text = "User Override: Moving..."
@@ -570,7 +553,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return 
 	end
 
-	-- Trigger de reanudación: Cuando te frenás, fuerza una ruta nueva al instante
 	if overrideActive and not isPlayerMovingInput() then
 		overrideActive = false
 		isResting = false
@@ -580,7 +562,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 
-	-- COMBATE ADAPTATIVO ACTIVADO
 	if currentEnemyTarget and currentEnemyTarget.Parent then
 		local enemyPos = currentEnemyTarget.Position
 		local distanceToEnemy = (rootPart.Position - enemyPos).Magnitude
@@ -613,7 +594,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 
-	-- LÓGICA DE PATRULLA PRINCIPAL RESTAURADA
 	local currentSpeed = 7.2
 	local moveDirection = Vector3.new()
 	local isCurrentlyMoving = false
